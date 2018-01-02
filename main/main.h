@@ -47,6 +47,7 @@ class Main {
 	static uint32_t frames;
 	static uint32_t frame;
 	static bool force_redraw_requested;
+	static int target_iters;
 
 public:
 	static Error setup(const char *execpath, int argc, char *argv[], bool p_second_phase = true);

@@ -1647,6 +1647,7 @@ float Main::time_accum = 0;
 uint32_t Main::frames = 0;
 uint32_t Main::frame = 0;
 bool Main::force_redraw_requested = false;
+int Main::target_iters = 0;
 
 //for performance metrics
 static uint64_t physics_process_max = 0;
@@ -1692,7 +1693,7 @@ bool Main::iteration() {
 
 	Engine::get_singleton()->_in_physics = true;
 
-	while (time_accum > frame_slice) {
+	while (time_accum + (target_iters - iters) * frame_slice * .5 > frame_slice) {
 
 		uint64_t physics_begin = OS::get_singleton()->get_ticks_usec();
 
@@ -1722,6 +1723,12 @@ bool Main::iteration() {
 		iters++;
 		Engine::get_singleton()->_physics_frames++;
 	}
+
+	// update target_iters so that iters fluctuates between target_iters and target_iters+1
+	if(iters <= target_iters)
+		target_iters = iters;
+	else
+		target_iters = iters-1;
 
 	Engine::get_singleton()->_in_physics = false;
 
