@@ -5084,9 +5084,26 @@ void EditorNode::_bind_methods() {
 
 void EditorNode::_export_godot3_path(const String &p_path) {
 
+	// Prevent exporting within the current project folder
+	// Copied from ProjectExportDialog
+	String location = Globals::get_singleton()->globalize_path(p_path).replace("\\", "/");
+	while (true) {
+
+		if (FileAccess::exists(location.plus_file("engine.cfg"))) {
+
+			accept->set_text(TTR("Please export outside the project folder!"));
+			accept->popup_centered_minsize();
+			return;
+		}
+		String nl = (location + "/..").simplify_path();
+		if (nl.find("/") == location.find_last("/"))
+			break;
+		location = nl;
+	}
+
 	Error err = export_godot3.export_godot3(p_path, export_godot3_dialog_convert_scripts->is_pressed());
 	if (err != OK) {
-		show_warning("Error exporting to Godot 3.0");
+		show_warning(TTR("Error exporting project to Godot 3.0."));
 	}
 }
 
@@ -6070,7 +6087,7 @@ EditorNode::EditorNode() {
 	about->add_child(vbc);
 	vbc->add_child(hbc);
 	Label *about_text = memnew(Label);
-	about_text->set_text(VERSION_FULL_NAME + String::utf8("\n\u00A9 2007-2018 Juan Linietsky, Ariel Manzur.\n\u00A9 2014-2017 ") + TTR("Godot Engine contributors") + "\n");
+	about_text->set_text(VERSION_FULL_NAME + String::utf8("\n\u00A9 2007-2018 Juan Linietsky, Ariel Manzur.\n\u00A9 2014-2018 ") + TTR("Godot Engine contributors") + "\n");
 	TextureFrame *logo = memnew(TextureFrame);
 	logo->set_texture(gui_base->get_icon("Logo", "EditorIcons"));
 	hbc->add_child(logo);
