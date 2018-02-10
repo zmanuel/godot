@@ -1221,6 +1221,127 @@ Error Main::setup2(Thread::ID p_main_tid_override) {
 	return OK;
 }
 
+// everything the main loop needs to know about frame timings
+struct _FrameTime {
+	float animation_step; // time to advance animations for (argument to process())
+	int physics_steps; // number of times to iterate the physics engine
+};
+
+class _TimerSync {
+	// wall clock time measured on the main thread
+	uint64_t last_cpu_ticks_usec;
+	uint64_t current_cpu_ticks_usec;
+
+	// logical game time since last physics timestep
+	float time_accum;
+
+	// current difference between wall clock time and reported sum of animation_steps
+	float time_deficit;
+
+	// typical value for physics_steps is either this or this plus one
+	int typical_physics_steps;
+
+	float physics_steps_change_threshold;
+
+protected:
+	// returns the fraction of p_frame_slice required for the timer to overshoot
+	// before advance_core considers changing the physics_steps return from
+	// the typical values as defined by typical_physics_steps
+	float get_physics_steps_change_threshold() {
+		return physics_steps_change_threshold;
+	}
+
+	// advance physics clock by p_animation_step, return appropriate number of steps to simulate
+	_FrameTime advance_core(float p_frame_slice, int p_iterations_per_second, float p_animation_step) {
+		_FrameTime ret;
+
+		ret.animation_step = p_animation_step;
+
+		// simple determination of number of physics iteration
+		time_accum += ret.animation_step;
+		ret.physics_steps = floor(time_accum * p_iterations_per_second);
+
+		// try to keep it consistent with previous iterations
+		if (ret.physics_steps < typical_physics_steps) {
+			ret.physics_steps = floor(time_accum * p_iterations_per_second + get_physics_steps_change_threshold());
+			typical_physics_steps = ret.physics_steps;
+		} else if (ret.physics_steps > typical_physics_steps + 1) {
+			ret.physics_steps = floor(time_accum * p_iterations_per_second - get_physics_steps_change_threshold());
+			typical_physics_steps = ret.physics_steps - 1;
+		}
+
+		time_accum -= ret.physics_steps * p_frame_slice;
+
+		return ret;
+	}
+
+	// calls advance_core, keeps track of deficit it adds to animaption_step, make sure the deficit sum stays close to zero
+	_FrameTime advance_checked(float p_frame_slice, int p_iterations_per_second, float p_animation_step) {
+		if (fixed_fps != -1)
+			p_animation_step = 1.0 / fixed_fps;
+
+		// compensate for last deficit
+		p_animation_step += time_deficit;
+
+		_FrameTime ret = advance_core(p_frame_slice, p_iterations_per_second, p_animation_step);
+
+		// make sure time_accum is between 0 and p_frame_slice, correct the animation step for consistency
+		if (time_accum < 0) {
+			ret.animation_step -= time_accum;
+			time_accum = 0;
+		} else if (time_accum > p_frame_slice) {
+			ret.animation_step += p_frame_slice - time_accum;
+			time_accum = p_frame_slice;
+		}
+
+		// track deficit
+		time_deficit = p_animation_step - ret.animation_step;
+
+		return ret;
+	}
+
+	// determine wall clock step since last iteration
+	float get_cpu_animation_step() {
+		uint64_t cpu_ticks_elapsed = current_cpu_ticks_usec - last_cpu_ticks_usec;
+		last_cpu_ticks_usec = current_cpu_ticks_usec;
+
+		return cpu_ticks_elapsed / 1000000.0;
+	}
+
+public:
+	explicit _TimerSync(double p_threshold) :
+			last_cpu_ticks_usec(0),
+			current_cpu_ticks_usec(0),
+			time_accum(0),
+			time_deficit(0),
+			typical_physics_steps(1),
+			physics_steps_change_threshold(p_threshold) {
+	}
+
+	// start the clock
+	void init(uint64_t p_cpu_ticks_usec) {
+		current_cpu_ticks_usec = last_cpu_ticks_usec = p_cpu_ticks_usec;
+	}
+
+	// set measured wall clock time
+	void set_cpu_ticks_usec(uint64_t p_cpu_ticks_usec) {
+		current_cpu_ticks_usec = p_cpu_ticks_usec;
+	}
+
+	// advance one frame, return timesteps to take
+	_FrameTime advance(float p_frame_slice, int p_iterations_per_second) {
+		float cpu_animation_step = get_cpu_animation_step();
+
+		return advance_checked(p_frame_slice, p_iterations_per_second, cpu_animation_step);
+	}
+
+	void before_start_render() {
+		VisualServer::get_singleton()->sync();
+	}
+};
+
+static _TimerSync _timer_sync(0.1);
+
 bool Main::start() {
 
 	ERR_FAIL_COND_V(!_start_success, false);
@@ -1234,6 +1355,8 @@ bool Main::start() {
 	String test;
 	String _export_preset;
 	bool export_debug = false;
+
+	_timer_sync.init(OS::get_singleton()->get_ticks_usec());
 
 	List<String> args = OS::get_singleton()->get_cmdline_args();
 	for (int i = 0; i < args.size(); i++) {
@@ -1700,7 +1823,6 @@ bool Main::start() {
 
 uint64_t Main::last_ticks = 0;
 uint64_t Main::target_ticks = 0;
-float Main::time_accum = 0;
 uint32_t Main::frames = 0;
 uint32_t Main::frame = 0;
 bool Main::force_redraw_requested = false;
@@ -1713,14 +1835,15 @@ bool Main::iteration() {
 
 	uint64_t ticks = OS::get_singleton()->get_ticks_usec();
 	Engine::get_singleton()->_frame_ticks = ticks;
+	_timer_sync.set_cpu_ticks_usec(ticks);
 
 	uint64_t ticks_elapsed = ticks - last_ticks;
 
-	double step = (double)ticks_elapsed / 1000000.0;
-	if (fixed_fps != -1)
-		step = 1.0 / fixed_fps;
+	int physics_fps = Engine::get_singleton()->get_iterations_per_second();
+	float frame_slice = 1.0 / physics_fps;
 
-	float frame_slice = 1.0 / Engine::get_singleton()->get_iterations_per_second();
+	_FrameTime advance = _timer_sync.advance(frame_slice, physics_fps);
+	double step = advance.animation_step;
 
 	Engine::get_singleton()->_frame_step = step;
 
@@ -1736,20 +1859,19 @@ bool Main::iteration() {
 
 	last_ticks = ticks;
 
-	if (fixed_fps == -1 && step > frame_slice * 8)
-		step = frame_slice * 8;
-
-	time_accum += step;
+	static const int max_physics_steps = 8;
+	if (fixed_fps == -1 && advance.physics_steps > max_physics_steps) {
+		step -= (advance.physics_steps - max_physics_steps) * frame_slice;
+		advance.physics_steps = max_physics_steps;
+	}
 
 	float time_scale = Engine::get_singleton()->get_time_scale();
 
 	bool exit = false;
 
-	int iters = 0;
-
 	Engine::get_singleton()->_in_physics = true;
 
-	while (time_accum > frame_slice) {
+	for (int iters = 0; iters < advance.physics_steps; ++iters) {
 
 		uint64_t physics_begin = OS::get_singleton()->get_ticks_usec();
 
@@ -1771,12 +1893,10 @@ bool Main::iteration() {
 		Physics2DServer::get_singleton()->end_sync();
 		Physics2DServer::get_singleton()->step(frame_slice * time_scale);
 
-		time_accum -= frame_slice;
 		message_queue->flush();
 
 		physics_process_ticks = MAX(physics_process_ticks, OS::get_singleton()->get_ticks_usec() - physics_begin); // keep the largest one for reference
 		physics_process_max = MAX(OS::get_singleton()->get_ticks_usec() - physics_begin, physics_process_max);
-		iters++;
 		Engine::get_singleton()->_physics_frames++;
 	}
 
@@ -1787,7 +1907,7 @@ bool Main::iteration() {
 	OS::get_singleton()->get_main_loop()->idle(step * time_scale);
 	message_queue->flush();
 
-	VisualServer::get_singleton()->sync(); //sync if still drawing from previous frames.
+	_timer_sync.before_start_render(); //sync if still drawing from previous frames.
 
 	if (OS::get_singleton()->can_draw() && !disable_render_loop) {
 
