@@ -385,3 +385,8 @@ RasterizerGLES2::~RasterizerGLES2() {
 	memdelete(storage);
 	memdelete(canvas);
 }
+
+int64_t RasterizerGLES2::sync_end_frame(int)
+{
+	return -1;
+}

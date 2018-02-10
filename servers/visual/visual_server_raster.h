@@ -650,7 +650,7 @@ public:
 	virtual void request_frame_drawn_callback(Object *p_where, const StringName &p_method, const Variant &p_userdata);
 
 	virtual void draw(bool p_swap_buffers);
-	virtual void sync();
+	virtual int64_t sync(int p_max_pending_frames);
 	virtual bool has_changed() const;
 	virtual void init();
 	virtual void finish();

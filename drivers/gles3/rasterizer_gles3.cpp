@@ -33,6 +33,7 @@
 #include "gl_context/context_gl.h"
 #include "os/os.h"
 #include "project_settings.h"
+#include "vector.h"
 #include <string.h>
 RasterizerStorage *RasterizerGLES3::get_storage() {
 
@@ -363,12 +364,76 @@ void RasterizerGLES3::blit_render_target_to_screen(RID p_render_target, const Re
 #endif
 }
 
-void RasterizerGLES3::end_frame(bool p_swap_buffers) {
+struct _PendingFrame {
+	GLuint query_handler;
+	GLsync fence;
 
+	void free() {
+		glDeleteSync(fence);
+		glDeleteQueries(1, &query_handler);
+	}
+};
+
+class _PendingFrameWaiter {
+	Vector<_PendingFrame> pending_frames;
+	int max_pending_frames;
+
+public:
+	_PendingFrameWaiter() :
+			max_pending_frames(4) {}
+	~_PendingFrameWaiter() {
+		for (int i = pending_frames.size() - 1; i >= 0; --i) {
+			pending_frames[i].free();
+		}
+	}
+	void push() {
+		if (pending_frames.size() > max_pending_frames + 4)
+			return; // overflow protection: if pop is not called often enough, do not fill up buffer.
+
+		_PendingFrame frame;
+		glGenQueries(1, &frame.query_handler);
+		glQueryCounter(frame.query_handler, GL_TIMESTAMP);
+		frame.fence = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
+		pending_frames.push_back(frame);
+	}
+	GLint64 pop(int p_max_pending_frames) {
+		max_pending_frames = p_max_pending_frames > 0 ? p_max_pending_frames : 0;
+		if (pending_frames.empty() || p_max_pending_frames < 0)
+			return -1;
+
+		GLuint64 time = -1;
+		while (pending_frames.size() > p_max_pending_frames) {
+			_PendingFrame &frame = pending_frames[0];
+
+			glClientWaitSync(frame.fence, 0, 1000 * 1000 * 20);
+
+			GLint available = 0;
+			glGetQueryObjectiv(frame.query_handler, GL_QUERY_RESULT_AVAILABLE, &available);
+			if (!available)
+				break; // timer not ready, try again next frame (should never happen, we already synced the fence)
+			glGetQueryObjectui64v(frame.query_handler, GL_QUERY_RESULT, &time);
+
+			frame.free();
+			pending_frames.remove(0);
+		}
+
+		return time;
+	}
+};
+
+static _PendingFrameWaiter _pending_frame_waiter;
+
+void RasterizerGLES3::end_frame(bool p_swap_buffers) {
 	if (p_swap_buffers)
 		OS::get_singleton()->swap_buffers();
 	else
 		glFinish();
+
+	_pending_frame_waiter.push();
+}
+
+int64_t RasterizerGLES3::sync_end_frame(int p_max_pending_frames) {
+	return _pending_frame_waiter.pop(p_max_pending_frames);
 }
 
 void RasterizerGLES3::finalize() {

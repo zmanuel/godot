@@ -937,7 +937,7 @@ public:
 	/* EVENT QUEUING */
 
 	virtual void draw(bool p_swap_buffers = true) = 0;
-	virtual void sync() = 0;
+	virtual int64_t sync(int p_max_pending_frames) = 0;
 	virtual bool has_changed() const = 0;
 	virtual void init() = 0;
 	virtual void finish() = 0;

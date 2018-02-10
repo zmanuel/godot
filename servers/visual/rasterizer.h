@@ -1068,6 +1068,7 @@ public:
 	virtual void clear_render_target(const Color &p_color) = 0;
 	virtual void blit_render_target_to_screen(RID p_render_target, const Rect2 &p_screen_rect, int p_screen = 0) = 0;
 	virtual void end_frame(bool p_swap_buffers) = 0;
+	virtual int64_t sync_end_frame(int p_max_pending_frames) = 0;
 	virtual void finalize() = 0;
 
 	virtual ~Rasterizer() {}

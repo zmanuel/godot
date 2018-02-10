@@ -662,6 +662,9 @@ public:
 	void set_physics_jitter_fix(float p_threshold);
 	float get_physics_jitter_fix() const;
 
+	void set_max_pending_frames(int p_max_pending_frames);
+	int get_max_pending_frames() const;
+
 	void set_target_fps(int p_fps);
 	int get_target_fps() const;
 

@@ -50,6 +50,14 @@ float Engine::get_physics_jitter_fix() const {
 	return physics_jitter_fix;
 }
 
+void Engine::set_max_pending_frames(int p_max_pending_frames) {
+	max_pending_frames = p_max_pending_frames;
+}
+
+int Engine::get_max_pending_frames() const {
+	return max_pending_frames;
+}
+
 void Engine::set_target_fps(int p_fps) {
 	_target_fps = p_fps > 0 ? p_fps : 0;
 }

@@ -58,6 +58,7 @@ private:
 
 	int ips;
 	float physics_jitter_fix;
+	int max_pending_frames;
 	float _fps;
 	int _target_fps;
 	float _time_scale;
@@ -82,6 +83,9 @@ public:
 
 	void set_physics_jitter_fix(float p_threshold);
 	float get_physics_jitter_fix() const;
+
+	void set_max_pending_frames(int p_max_pending_frames);
+	int get_max_pending_frames() const;
 
 	virtual void set_target_fps(int p_fps);
 	virtual float get_target_fps() const;
