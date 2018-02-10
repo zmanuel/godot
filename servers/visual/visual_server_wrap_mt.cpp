@@ -50,6 +50,10 @@ void VisualServerWrapMT::thread_flush() {
 	atomic_decrement(&draw_pending);
 }
 
+int64_t VisualServerWrapMT::thread_sync(int p_max_pending_frames) {
+	return visual_server->sync(p_max_pending_frames);
+}
+
 void VisualServerWrapMT::_thread_callback(void *_instance) {
 
 	VisualServerWrapMT *vsmt = reinterpret_cast<VisualServerWrapMT *>(_instance);
@@ -79,15 +83,24 @@ void VisualServerWrapMT::thread_loop() {
 
 /* EVENT QUEUING */
 
-void VisualServerWrapMT::sync() {
+int64_t VisualServerWrapMT::sync(int p_max_pending_frames) {
 
 	if (create_thread) {
-
-		atomic_increment(&draw_pending);
-		command_queue.push_and_sync(this, &VisualServerWrapMT::thread_flush);
+		if (p_max_pending_frames >= 0) {
+			// wait for pending frames
+			int64_t gpu_frame_timer = -1;
+			command_queue.push_and_ret(this, &VisualServerWrapMT::thread_sync, p_max_pending_frames, &gpu_frame_timer);
+			return gpu_frame_timer;
+		} else {
+			// no waiting for pending frames
+			atomic_increment(&draw_pending);
+			command_queue.push_and_sync(this, &VisualServerWrapMT::thread_flush);
+			return -1;
+		}
 	} else {
 
 		command_queue.flush_all(); //flush all pending from other threads
+		return visual_server->sync(p_max_pending_frames);
 	}
 }
 
