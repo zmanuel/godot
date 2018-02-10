@@ -124,7 +124,8 @@ void VisualServerRaster::draw(bool p_swap_buffers) {
 
 	emit_signal("frame_drawn_in_thread");
 }
-void VisualServerRaster::sync() {
+int64_t VisualServerRaster::sync() {
+	return VSG::rasterizer->sync_end_frame(1);
 }
 bool VisualServerRaster::has_changed() const {
 

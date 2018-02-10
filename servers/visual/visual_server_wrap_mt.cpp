@@ -50,6 +50,11 @@ void VisualServerWrapMT::thread_flush() {
 	atomic_decrement(&draw_pending);
 }
 
+void VisualServerWrapMT::thread_sync() {
+	// the only write acces to gpu_frame_timer, must be called in push_and_sync context
+	gpu_frame_timer = visual_server->sync();
+}
+
 void VisualServerWrapMT::_thread_callback(void *_instance) {
 
 	VisualServerWrapMT *vsmt = reinterpret_cast<VisualServerWrapMT *>(_instance);
@@ -79,15 +84,18 @@ void VisualServerWrapMT::thread_loop() {
 
 /* EVENT QUEUING */
 
-void VisualServerWrapMT::sync() {
+int64_t VisualServerWrapMT::sync() {
 
 	if (create_thread) {
 
+		command_queue.push_and_sync(this, &VisualServerWrapMT::thread_sync);
 		atomic_increment(&draw_pending);
 		command_queue.push_and_sync(this, &VisualServerWrapMT::thread_flush);
+		return gpu_frame_timer; // only place this is read
 	} else {
 
 		command_queue.flush_all(); //flush all pending from other threads
+		return gpu_frame_timer = visual_server->sync();
 	}
 }
 
@@ -177,6 +185,7 @@ VisualServerWrapMT::VisualServerWrapMT(VisualServer *p_contained, bool p_create_
 	create_thread = p_create_thread;
 	thread = NULL;
 	draw_pending = 0;
+	gpu_frame_timer = 0;
 	draw_thread_up = false;
 	alloc_mutex = Mutex::create();
 	pool_max_size = GLOBAL_GET("memory/limits/multithreaded_server/rid_pool_prealloc");
