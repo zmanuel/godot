@@ -1171,6 +1171,60 @@ Error Main::setup2(Thread::ID p_main_tid_override) {
 	return OK;
 }
 
+// everything the main loop needs to know about frame timings
+struct _FrameTime {
+	float animation_step; // time to advance animations for (argument to process())
+	int physics_steps; // number of times to iterate the physics engine
+};
+
+class _TimerSyncClassic {
+	uint64_t last_cpu_ticks_usec;
+	uint64_t current_cpu_ticks_usec;
+	float time_accum;
+
+public:
+	_TimerSyncClassic() :
+			time_accum(0),
+			last_cpu_ticks_usec(0),
+			current_cpu_ticks_usec(0) {
+	}
+
+	void init(uint64_t p_cpu_ticks_usec) {
+		current_cpu_ticks_usec = last_cpu_ticks_usec = p_cpu_ticks_usec;
+	}
+
+	void set_cpu_ticks_usec(uint64_t p_cpu_ticks_usec) {
+		current_cpu_ticks_usec = p_cpu_ticks_usec;
+	}
+
+	_FrameTime advance(float p_frame_slice, int p_iterations_per_second) {
+		_FrameTime ret;
+
+		uint64_t ticks_elapsed = current_cpu_ticks_usec - last_cpu_ticks_usec;
+		last_cpu_ticks_usec = current_cpu_ticks_usec;
+
+		if (fixed_fps != -1)
+			ret.animation_step = 1.0 / fixed_fps;
+		else
+			ret.animation_step = ticks_elapsed / 1000000.0;
+
+		time_accum += ret.animation_step;
+		ret.physics_steps = floor(time_accum * p_iterations_per_second);
+		time_accum -= ret.physics_steps * p_frame_slice;
+
+		return ret;
+	}
+
+	void before_start_render() {
+		VisualServer::get_singleton()->sync();
+	}
+
+	void before_process_input() {
+	}
+};
+
+static _TimerSyncClassic _timer_sync;
+
 bool Main::start() {
 
 	ERR_FAIL_COND_V(!_start_success, false);
@@ -1186,6 +1240,8 @@ bool Main::start() {
 	String _export_preset;
 	bool export_debug = false;
 	bool project_manager_request = false;
+
+	_timer_sync.init(OS::get_singleton()->get_ticks_usec());
 
 	List<String> args = OS::get_singleton()->get_cmdline_args();
 	for (int i = 0; i < args.size(); i++) {
@@ -1649,7 +1705,6 @@ bool Main::start() {
 
 uint64_t Main::last_ticks = 0;
 uint64_t Main::target_ticks = 0;
-float Main::time_accum = 0;
 uint32_t Main::frames = 0;
 uint32_t Main::frame = 0;
 bool Main::force_redraw_requested = false;
@@ -1662,14 +1717,15 @@ bool Main::iteration() {
 
 	uint64_t ticks = OS::get_singleton()->get_ticks_usec();
 	Engine::get_singleton()->_frame_ticks = ticks;
+	_timer_sync.set_cpu_ticks_usec(ticks);
 
 	uint64_t ticks_elapsed = ticks - last_ticks;
 
-	double step = (double)ticks_elapsed / 1000000.0;
-	if (fixed_fps != -1)
-		step = 1.0 / fixed_fps;
+	int physics_fps = Engine::get_singleton()->get_iterations_per_second();
+	float frame_slice = 1.0 / physics_fps;
 
-	float frame_slice = 1.0 / Engine::get_singleton()->get_iterations_per_second();
+	_FrameTime advance = _timer_sync.advance(frame_slice, physics_fps);
+	double step = advance.animation_step;
 
 	Engine::get_singleton()->_frame_step = step;
 
@@ -1685,20 +1741,18 @@ bool Main::iteration() {
 
 	last_ticks = ticks;
 
-	if (fixed_fps == -1 && step > frame_slice * 8)
+	if (fixed_fps == -1 && step > frame_slice * 8) {
 		step = frame_slice * 8;
-
-	time_accum += step;
+		advance.physics_steps = 8;
+	}
 
 	float time_scale = Engine::get_singleton()->get_time_scale();
 
 	bool exit = false;
 
-	int iters = 0;
-
 	Engine::get_singleton()->_in_physics = true;
 
-	while (time_accum > frame_slice) {
+	for (int iters = 0; iters < advance.physics_steps; ++iters) {
 
 		uint64_t physics_begin = OS::get_singleton()->get_ticks_usec();
 
@@ -1720,12 +1774,10 @@ bool Main::iteration() {
 		Physics2DServer::get_singleton()->end_sync();
 		Physics2DServer::get_singleton()->step(frame_slice * time_scale);
 
-		time_accum -= frame_slice;
 		message_queue->flush();
 
 		physics_process_ticks = MAX(physics_process_ticks, OS::get_singleton()->get_ticks_usec() - physics_begin); // keep the largest one for reference
 		physics_process_max = MAX(OS::get_singleton()->get_ticks_usec() - physics_begin, physics_process_max);
-		iters++;
 		Engine::get_singleton()->_physics_frames++;
 	}
 
@@ -1736,7 +1788,7 @@ bool Main::iteration() {
 	OS::get_singleton()->get_main_loop()->idle(step * time_scale);
 	message_queue->flush();
 
-	VisualServer::get_singleton()->sync(); //sync if still drawing from previous frames.
+	_timer_sync.before_start_render(); //sync if still drawing from previous frames.
 
 	if (OS::get_singleton()->can_draw() && !disable_render_loop) {
 
@@ -1809,6 +1861,9 @@ bool Main::iteration() {
 		current_ticks = OS::get_singleton()->get_ticks_usec();
 		target_ticks = MIN(MAX(target_ticks, current_ticks - time_step), current_ticks + time_step);
 	}
+
+	// input handling happens right outside this function in a tight loop
+	_timer_sync.before_process_input();
 
 	return exit;
 }
