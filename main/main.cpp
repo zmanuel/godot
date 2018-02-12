@@ -1182,6 +1182,29 @@ class _TimerSyncClassic {
 	uint64_t current_cpu_ticks_usec;
 	float time_accum;
 
+protected:
+	_FrameTime advance_core(float p_frame_slice, int p_iterations_per_second, float p_animation_step) {
+		_FrameTime ret;
+
+		if (fixed_fps != -1)
+			ret.animation_step = 1.0 / fixed_fps;
+		else
+			ret.animation_step = p_animation_step;
+
+		time_accum += ret.animation_step;
+		ret.physics_steps = floor(time_accum * p_iterations_per_second);
+		time_accum -= ret.physics_steps * p_frame_slice;
+
+		return ret;
+	}
+
+	float get_cpu_animation_step() {
+		uint64_t cpu_ticks_elapsed = current_cpu_ticks_usec - last_cpu_ticks_usec;
+		last_cpu_ticks_usec = current_cpu_ticks_usec;
+
+		return cpu_ticks_elapsed / 1000000.0;
+	}
+
 public:
 	_TimerSyncClassic() :
 			time_accum(0),
@@ -1198,21 +1221,9 @@ public:
 	}
 
 	_FrameTime advance(float p_frame_slice, int p_iterations_per_second) {
-		_FrameTime ret;
+		float cpu_animation_step = get_cpu_animation_step();
 
-		uint64_t ticks_elapsed = current_cpu_ticks_usec - last_cpu_ticks_usec;
-		last_cpu_ticks_usec = current_cpu_ticks_usec;
-
-		if (fixed_fps != -1)
-			ret.animation_step = 1.0 / fixed_fps;
-		else
-			ret.animation_step = ticks_elapsed / 1000000.0;
-
-		time_accum += ret.animation_step;
-		ret.physics_steps = floor(time_accum * p_iterations_per_second);
-		time_accum -= ret.physics_steps * p_frame_slice;
-
-		return ret;
+		return advance_core(p_frame_slice, p_iterations_per_second, cpu_animation_step);
 	}
 
 	void before_start_render() {
