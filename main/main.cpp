@@ -1250,7 +1250,7 @@ protected:
 		return ret;
 	}
 
-	// determine wall clock step since last iteration
+	// determine CPU wall clock step since last iteration
 	float get_cpu_animation_step() {
 		uint64_t cpu_ticks_elapsed = current_cpu_ticks_usec - last_cpu_ticks_usec;
 		last_cpu_ticks_usec = current_cpu_ticks_usec;
@@ -1273,7 +1273,7 @@ public:
 		current_cpu_ticks_usec = last_cpu_ticks_usec = p_cpu_ticks_usec;
 	}
 
-	// set measured wall clock time
+	// set measured wall clock time from the main thread
 	void set_cpu_ticks_usec(uint64_t p_cpu_ticks_usec) {
 		current_cpu_ticks_usec = p_cpu_ticks_usec;
 	}
@@ -1281,7 +1281,6 @@ public:
 	// advance one frame, return timesteps to take
 	_FrameTime advance(float p_frame_slice, int p_iterations_per_second) {
 		float cpu_animation_step = get_cpu_animation_step();
-
 		return advance_checked(p_frame_slice, p_iterations_per_second, cpu_animation_step);
 	}
 
@@ -1293,7 +1292,55 @@ public:
 	}
 };
 
-static _TimerSync _timer_sync(0.1);
+class _TimerSyncGPU : public _TimerSync {
+	// wall clock time measured on the GPU (uses nanoseconds)
+	int64_t last_gpu_ticks_nsec;
+	int64_t current_gpu_ticks_nsec;
+
+protected:
+	// determine GPU wall clock step since last iteration
+	float get_gpu_animation_step() {
+		uint64_t gpu_ticks_elapsed = current_gpu_ticks_nsec - last_gpu_ticks_nsec;
+		last_gpu_ticks_nsec = current_gpu_ticks_nsec;
+
+		return gpu_ticks_elapsed / 1000000000.0;
+	}
+
+public:
+	explicit _TimerSyncGPU(double p_threshold) :
+			_TimerSync(p_threshold),
+			last_gpu_ticks_nsec(-1),
+			current_gpu_ticks_nsec(-1) {
+	}
+
+	// set measured wall clock time on GPU buffer swap
+	void set_gpu_ticks_nsec(uint64_t p_gpu_ticks_nsec) {
+		current_gpu_ticks_nsec = p_gpu_ticks_nsec;
+	}
+
+	// advance one frame, return timesteps to take
+	_FrameTime advance(float p_frame_slice, int p_iterations_per_second) {
+		float cpu_animation_step = get_cpu_animation_step();
+		if (last_gpu_ticks_nsec < 0 || current_gpu_ticks_nsec < 0) {
+			// GPU time unreliable, work with CPU time only
+			get_gpu_animation_step();
+			return advance_checked(p_frame_slice, p_iterations_per_second, cpu_animation_step);
+		}
+
+		float gpu_animation_step = get_gpu_animation_step();
+		return advance_checked(p_frame_slice, p_iterations_per_second, gpu_animation_step);
+	}
+
+	void before_start_render() {
+		set_gpu_ticks_nsec(VisualServer::get_singleton()->sync());
+	}
+
+	void before_process_input() {
+	}
+};
+
+static _TimerSyncGPU _timer_sync(0.1);
+// static _TimerSync _timer_sync(0.1);
 
 bool Main::start() {
 
