@@ -1207,10 +1207,21 @@ protected:
 
 	// calls advance_core, keeps track of deficit it adds to animaption_step, make sure the deficit sum stays close to zero
 	_FrameTime advance_checked(float p_frame_slice, int p_iterations_per_second, float p_animation_step) {
+		// compensate for last deficit
 		p_animation_step += time_deficit;
 
 		_FrameTime ret = advance_core(p_frame_slice, p_iterations_per_second, p_animation_step);
 
+		// make sure time_accum is between 0 and p_frame_slice, correct the animation step for consistency
+		if (time_accum < 0) {
+			ret.animation_step -= time_accum;
+			time_accum = 0;
+		} else if (time_accum > p_frame_slice) {
+			ret.animation_step += p_frame_slice - time_accum;
+			time_accum = p_frame_slice;
+		}
+
+		// track deficit
 		time_deficit = p_animation_step - ret.animation_step;
 
 		return ret;
