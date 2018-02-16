@@ -1177,7 +1177,7 @@ struct _FrameTime {
 	int physics_steps; // number of times to iterate the physics engine
 };
 
-class _TimerSyncClassic {
+class _TimerSync {
 	// wall clock time measured on the main thread
 	uint64_t last_cpu_ticks_usec;
 	uint64_t current_cpu_ticks_usec;
@@ -1185,10 +1185,22 @@ class _TimerSyncClassic {
 	// logical game time since last physics timestep
 	float time_accum;
 
-	//
+	// current difference between wall clock time and reported sum of animation_steps
 	float time_deficit;
 
+	// typical value for physics_steps is either this or this plus one
+	int typical_physics_steps;
+
+	float physics_steps_change_threshold;
+
 protected:
+	// returns the fraction of p_frame_slice required for the timer to overshoot
+	// before advance_core considers changing the physics_steps return from
+	// the typical values as defined by typical_physics_steps
+	float get_physics_steps_change_threshold() {
+		return physics_steps_change_threshold;
+	}
+
 	// advance physics clock by p_animation_step, return appropriate number of steps to simulate
 	_FrameTime advance_core(float p_frame_slice, int p_iterations_per_second, float p_animation_step) {
 		_FrameTime ret;
@@ -1198,8 +1210,19 @@ protected:
 		else
 			ret.animation_step = p_animation_step;
 
+		// simple determination of number of physics iteration
 		time_accum += ret.animation_step;
 		ret.physics_steps = floor(time_accum * p_iterations_per_second);
+
+		// try to keep it consistent with previous iterations
+		if (ret.physics_steps < typical_physics_steps) {
+			ret.physics_steps = floor(time_accum * p_iterations_per_second + get_physics_steps_change_threshold());
+			typical_physics_steps = ret.physics_steps;
+		} else if (ret.physics_steps > typical_physics_steps + 1) {
+			ret.physics_steps = floor(time_accum * p_iterations_per_second - get_physics_steps_change_threshold());
+			typical_physics_steps = ret.physics_steps - 1;
+		}
+
 		time_accum -= ret.physics_steps * p_frame_slice;
 
 		return ret;
@@ -1236,11 +1259,13 @@ protected:
 	}
 
 public:
-	_TimerSyncClassic() :
+	explicit _TimerSync(double p_threshold) :
 			last_cpu_ticks_usec(0),
 			current_cpu_ticks_usec(0),
 			time_accum(0),
-			time_deficit(0) {
+			time_deficit(0),
+			typical_physics_steps(1),
+			physics_steps_change_threshold(p_threshold) {
 	}
 
 	// start the clock
@@ -1268,7 +1293,7 @@ public:
 	}
 };
 
-static _TimerSyncClassic _timer_sync;
+static _TimerSync _timer_sync(0.1);
 
 bool Main::start() {
 
