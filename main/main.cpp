@@ -1178,11 +1178,18 @@ struct _FrameTime {
 };
 
 class _TimerSyncClassic {
+	// wall clock time measured on the main thread
 	uint64_t last_cpu_ticks_usec;
 	uint64_t current_cpu_ticks_usec;
+
+	// logical game time since last physics timestep
 	float time_accum;
 
+	//
+	float time_deficit;
+
 protected:
+	// advance physics clock by p_animation_step, return appropriate number of steps to simulate
 	_FrameTime advance_core(float p_frame_slice, int p_iterations_per_second, float p_animation_step) {
 		_FrameTime ret;
 
@@ -1198,6 +1205,18 @@ protected:
 		return ret;
 	}
 
+	// calls advance_core, keeps track of deficit it adds to animaption_step, make sure the deficit sum stays close to zero
+	_FrameTime advance_checked(float p_frame_slice, int p_iterations_per_second, float p_animation_step) {
+		p_animation_step += time_deficit;
+
+		_FrameTime ret = advance_core(p_frame_slice, p_iterations_per_second, p_animation_step);
+
+		time_deficit = p_animation_step - ret.animation_step;
+
+		return ret;
+	}
+
+	// determine wall clock step since last iteration
 	float get_cpu_animation_step() {
 		uint64_t cpu_ticks_elapsed = current_cpu_ticks_usec - last_cpu_ticks_usec;
 		last_cpu_ticks_usec = current_cpu_ticks_usec;
@@ -1207,23 +1226,27 @@ protected:
 
 public:
 	_TimerSyncClassic() :
-			time_accum(0),
 			last_cpu_ticks_usec(0),
-			current_cpu_ticks_usec(0) {
+			current_cpu_ticks_usec(0),
+			time_accum(0),
+			time_deficit(0) {
 	}
 
+	// start the clock
 	void init(uint64_t p_cpu_ticks_usec) {
 		current_cpu_ticks_usec = last_cpu_ticks_usec = p_cpu_ticks_usec;
 	}
 
+	// set measured wall clock time
 	void set_cpu_ticks_usec(uint64_t p_cpu_ticks_usec) {
 		current_cpu_ticks_usec = p_cpu_ticks_usec;
 	}
 
+	// advance one frame, return timesteps to take
 	_FrameTime advance(float p_frame_slice, int p_iterations_per_second) {
 		float cpu_animation_step = get_cpu_animation_step();
 
-		return advance_core(p_frame_slice, p_iterations_per_second, cpu_animation_step);
+		return advance_checked(p_frame_slice, p_iterations_per_second, cpu_animation_step);
 	}
 
 	void before_start_render() {
