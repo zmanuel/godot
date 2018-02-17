@@ -2581,6 +2581,14 @@ int _Engine::get_iterations_per_second() const {
 	return Engine::get_singleton()->get_iterations_per_second();
 }
 
+void _Engine::set_physics_steps_change_threshold(float p_threshold) {
+	Engine::get_singleton()->set_physics_steps_change_threshold(p_threshold);
+}
+
+float _Engine::get_physics_steps_change_threshold() const {
+	return Engine::get_singleton()->get_physics_steps_change_threshold();
+}
+
 void _Engine::set_target_fps(int p_fps) {
 	Engine::get_singleton()->set_target_fps(p_fps);
 }
@@ -2647,6 +2655,8 @@ void _Engine::_bind_methods() {
 
 	ClassDB::bind_method(D_METHOD("set_iterations_per_second", "iterations_per_second"), &_Engine::set_iterations_per_second);
 	ClassDB::bind_method(D_METHOD("get_iterations_per_second"), &_Engine::get_iterations_per_second);
+	ClassDB::bind_method(D_METHOD("set_physics_steps_change_threshold", "physics_steps_change_threshold"), &_Engine::set_physics_steps_change_threshold);
+	ClassDB::bind_method(D_METHOD("get_physics_steps_change_threshold"), &_Engine::get_physics_steps_change_threshold);
 	ClassDB::bind_method(D_METHOD("set_target_fps", "target_fps"), &_Engine::set_target_fps);
 	ClassDB::bind_method(D_METHOD("get_target_fps"), &_Engine::get_target_fps);
 
@@ -2672,6 +2682,7 @@ void _Engine::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "iterations_per_second"), "set_iterations_per_second", "get_iterations_per_second");
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "target_fps"), "set_target_fps", "get_target_fps");
 	ADD_PROPERTY(PropertyInfo(Variant::REAL, "time_scale"), "set_time_scale", "get_time_scale");
+	ADD_PROPERTY(PropertyInfo(Variant::REAL, "physics_steps_change_threshold"), "set_physics_steps_change_threshold", "get_physics_steps_change_threshold");
 }
 
 _Engine *_Engine::singleton = NULL;

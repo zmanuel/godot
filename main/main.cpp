@@ -904,6 +904,7 @@ Error Main::setup(const char *execpath, int argc, char *argv[], bool p_second_ph
 	}
 
 	Engine::get_singleton()->set_iterations_per_second(GLOBAL_DEF("physics/common/physics_fps", 60));
+	Engine::get_singleton()->set_physics_steps_change_threshold(GLOBAL_DEF("physics/common/physics_steps_change_threshold", 0.02));
 	Engine::get_singleton()->set_target_fps(GLOBAL_DEF("debug/settings/fps/force_fps", 0));
 
 	GLOBAL_DEF("debug/settings/stdout/print_fps", OS::get_singleton()->is_stdout_verbose());
@@ -1200,14 +1201,13 @@ class _TimerSync {
 	// typical value for accumulated_physics_steps[x] is either this or this plus one
 	int typical_physics_steps[CONTROL_STEPS];
 
-	float physics_steps_change_threshold;
-
 protected:
 	// returns the fraction of p_frame_slice required for the timer to overshoot
 	// before advance_core considers changing the physics_steps return from
 	// the typical values as defined by typical_physics_steps
 	float get_physics_steps_change_threshold() {
-		return physics_steps_change_threshold;
+		float ret = Engine::get_singleton()->get_physics_steps_change_threshold();
+		return ret < 1 ? ret : 1;
 	}
 
 	// advance physics clock by p_animation_step, return appropriate number of steps to simulate
@@ -1305,12 +1305,11 @@ protected:
 	}
 
 public:
-	explicit _TimerSync(double p_threshold) :
+	_TimerSync() :
 			last_cpu_ticks_usec(0),
 			current_cpu_ticks_usec(0),
 			time_accum(0),
-			time_deficit(0),
-			physics_steps_change_threshold(p_threshold) {
+			time_deficit(0) {
 		for (int i = CONTROL_STEPS - 1; i >= 0; --i) {
 			typical_physics_steps[i] = 0;
 			accumulated_physics_steps[i] = 0;
@@ -1342,7 +1341,7 @@ public:
 	}
 };
 
-static _TimerSync _timer_sync(0.1);
+static _TimerSync _timer_sync;
 
 bool Main::start() {
 
