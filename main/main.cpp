@@ -904,6 +904,7 @@ Error Main::setup(const char *execpath, int argc, char *argv[], bool p_second_ph
 	}
 
 	Engine::get_singleton()->set_iterations_per_second(GLOBAL_DEF("physics/common/physics_fps", 60));
+	Engine::get_singleton()->set_physics_steps_change_threshold(GLOBAL_DEF("physics/common/physics_steps_change_threshold", 0.02));
 	Engine::get_singleton()->set_target_fps(GLOBAL_DEF("debug/settings/fps/force_fps", 0));
 
 	GLOBAL_DEF("debug/settings/stdout/print_fps", OS::get_singleton()->is_stdout_verbose());
@@ -1191,24 +1192,20 @@ class _TimerSync {
 	// typical value for physics_steps is either this or this plus one
 	int typical_physics_steps;
 
-	float physics_steps_change_threshold;
-
 protected:
 	// returns the fraction of p_frame_slice required for the timer to overshoot
 	// before advance_core considers changing the physics_steps return from
 	// the typical values as defined by typical_physics_steps
 	float get_physics_steps_change_threshold() {
-		return physics_steps_change_threshold;
+		float ret = Engine::get_singleton()->get_physics_steps_change_threshold();
+		return ret < 1 ? ret : 1;
 	}
 
 	// advance physics clock by p_animation_step, return appropriate number of steps to simulate
 	_FrameTime advance_core(float p_frame_slice, int p_iterations_per_second, float p_animation_step) {
 		_FrameTime ret;
 
-		if (fixed_fps != -1)
-			ret.animation_step = 1.0 / fixed_fps;
-		else
-			ret.animation_step = p_animation_step;
+		ret.animation_step = p_animation_step;
 
 		// simple determination of number of physics iteration
 		time_accum += ret.animation_step;
@@ -1230,6 +1227,9 @@ protected:
 
 	// calls advance_core, keeps track of deficit it adds to animaption_step, make sure the deficit sum stays close to zero
 	_FrameTime advance_checked(float p_frame_slice, int p_iterations_per_second, float p_animation_step) {
+		if (fixed_fps != -1)
+			p_animation_step = 1.0 / fixed_fps;
+
 		// compensate for last deficit
 		p_animation_step += time_deficit;
 
@@ -1259,13 +1259,12 @@ protected:
 	}
 
 public:
-	explicit _TimerSync(double p_threshold) :
+	_TimerSync() :
 			last_cpu_ticks_usec(0),
 			current_cpu_ticks_usec(0),
 			time_accum(0),
 			time_deficit(0),
-			typical_physics_steps(1),
-			physics_steps_change_threshold(p_threshold) {
+			typical_physics_steps(1) {
 	}
 
 	// start the clock
@@ -1350,8 +1349,7 @@ protected:
 	}
 
 public:
-	explicit _TimerSyncGPU(double p_threshold) :
-			_TimerSync(p_threshold),
+	_TimerSyncGPU() :
 			last_gpu_ticks_nsec(-1),
 			current_gpu_ticks_nsec(-1),
 			cpu_penalty(1),
@@ -1415,8 +1413,7 @@ public:
 	}
 };
 
-static _TimerSyncGPU _timer_sync(0.1);
-// static _TimerSync _timer_sync(0.1);
+static _TimerSyncGPU _timer_sync;
 
 bool Main::start() {
 
@@ -1934,9 +1931,10 @@ bool Main::iteration() {
 
 	last_ticks = ticks;
 
-	if (fixed_fps == -1 && step > frame_slice * 8) {
-		step = frame_slice * 8;
-		advance.physics_steps = 8;
+	static const int max_physics_steps = 8;
+	if (fixed_fps == -1 && advance.physics_steps > max_physics_steps) {
+		step -= (advance.physics_steps - max_physics_steps) * frame_slice;
+		advance.physics_steps = max_physics_steps;
 	}
 
 	float time_scale = Engine::get_singleton()->get_time_scale();

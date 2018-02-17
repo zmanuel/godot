@@ -42,6 +42,14 @@ int Engine::get_iterations_per_second() const {
 	return ips;
 }
 
+void Engine::set_physics_steps_change_threshold(float p_threshold) {
+	physics_steps_change_threshold = p_threshold;
+}
+
+float Engine::get_physics_steps_change_threshold() const {
+	return physics_steps_change_threshold;
+}
+
 void Engine::set_target_fps(int p_fps) {
 	_target_fps = p_fps > 0 ? p_fps : 0;
 }
@@ -137,6 +145,7 @@ Engine::Engine() {
 	singleton = this;
 	frames_drawn = 0;
 	ips = 60;
+	physics_steps_change_threshold = 0.02;
 	_frame_delay = 0;
 	_fps = 1;
 	_target_fps = 0;

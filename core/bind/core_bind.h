@@ -655,6 +655,9 @@ public:
 	void set_iterations_per_second(int p_ips);
 	int get_iterations_per_second() const;
 
+	void set_physics_steps_change_threshold(float p_threshold);
+	float get_physics_steps_change_threshold() const;
+
 	void set_target_fps(int p_fps);
 	int get_target_fps() const;
 
