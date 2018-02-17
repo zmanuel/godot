@@ -57,6 +57,7 @@ private:
 	float _frame_step;
 
 	int ips;
+	float physics_steps_change_threshold;
 	float _fps;
 	int _target_fps;
 	float _time_scale;
@@ -78,6 +79,9 @@ public:
 
 	virtual void set_iterations_per_second(int p_ips);
 	virtual int get_iterations_per_second() const;
+
+	void set_physics_steps_change_threshold(float p_threshold);
+	float get_physics_steps_change_threshold() const;
 
 	virtual void set_target_fps(int p_fps);
 	virtual float get_target_fps() const;
