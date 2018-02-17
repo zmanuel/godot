@@ -1297,6 +1297,49 @@ class _TimerSyncGPU : public _TimerSync {
 	int64_t last_gpu_ticks_nsec;
 	int64_t current_gpu_ticks_nsec;
 
+	// record past delta times, gives stats
+	class DeltaHistory {
+		static const int SIZE = 8;
+		float past_delta[SIZE];
+		int current;
+
+	public:
+		DeltaHistory() :
+				current(0) {
+			for (int i = SIZE - 1; i >= 0; --i) {
+				past_delta[i] = 0.0f;
+			}
+		}
+		void add(float p_delta) {
+			past_delta[current] = p_delta;
+			current = (current + 1) % SIZE;
+		}
+
+		// difference between shortest and longest delta time step recently
+		float get_spread() {
+			float min = 1;
+			float max = 0;
+			for (int i = SIZE - 1; i >= 0; --i) {
+				float d = past_delta[i];
+				if (d < min)
+					min = d;
+				if (d > max)
+					max = d;
+			}
+
+			return max - min;
+		}
+	};
+
+	// record both delta histories
+	DeltaHistory gpu_delta_history, cpu_delta_history;
+
+	// factor to multiply the cpu timer spread with when comparing it to the GPU timer
+	float cpu_penalty;
+
+	// difference between sum of actual animation_step values used and sum of cpu_animation_step.
+	float time_deficit;
+
 protected:
 	// determine GPU wall clock step since last iteration
 	float get_gpu_animation_step() {
@@ -1310,7 +1353,9 @@ public:
 	explicit _TimerSyncGPU(double p_threshold) :
 			_TimerSync(p_threshold),
 			last_gpu_ticks_nsec(-1),
-			current_gpu_ticks_nsec(-1) {
+			current_gpu_ticks_nsec(-1),
+			cpu_penalty(1),
+			time_deficit(0) {
 	}
 
 	// set measured wall clock time on GPU buffer swap
@@ -1321,14 +1366,45 @@ public:
 	// advance one frame, return timesteps to take
 	_FrameTime advance(float p_frame_slice, int p_iterations_per_second) {
 		float cpu_animation_step = get_cpu_animation_step();
-		if (last_gpu_ticks_nsec < 0 || current_gpu_ticks_nsec < 0) {
+		float gpu_animation_step = get_gpu_animation_step();
+
+		gpu_delta_history.add(gpu_animation_step);
+		cpu_delta_history.add(cpu_animation_step);
+
+		float gpu_spread = gpu_delta_history.get_spread();
+		float cpu_spread = cpu_delta_history.get_spread();
+
+		float animation_step;
+
+		if (last_gpu_ticks_nsec < 0 || current_gpu_ticks_nsec < 0 ||
+				gpu_spread > cpu_spread * cpu_penalty) {
+			cpu_penalty = .75;
+
 			// GPU time unreliable, work with CPU time only
-			get_gpu_animation_step();
-			return advance_checked(p_frame_slice, p_iterations_per_second, cpu_animation_step);
+			animation_step = cpu_animation_step;
+
+		} else {
+			cpu_penalty = 1.5;
+
+			animation_step = gpu_animation_step;
+
+			// keep track of deficit, the CPU timer is probably more reliable in the long term.
+			// plus, even if both timers are individuallty accurate, switcing between the deltas
+			// produced by each is going to make the total time unreliable and we need to clamp
+			// one to the other.
+			time_deficit += animation_step - cpu_animation_step;
+
+			float tolerance = gpu_animation_step + cpu_animation_step + cpu_spread + gpu_spread;
+			if (time_deficit < -tolerance) {
+				animation_step -= time_deficit + tolerance;
+				time_deficit = -tolerance;
+			} else if (time_deficit > tolerance) {
+				animation_step -= time_deficit - tolerance;
+				time_deficit = tolerance;
+			}
 		}
 
-		float gpu_animation_step = get_gpu_animation_step();
-		return advance_checked(p_frame_slice, p_iterations_per_second, gpu_animation_step);
+		return advance_checked(p_frame_slice, p_iterations_per_second, animation_step);
 	}
 
 	void before_start_render() {
