@@ -1811,9 +1811,10 @@ bool Main::iteration() {
 
 	last_ticks = ticks;
 
-	if (fixed_fps == -1 && step > frame_slice * 8) {
-		step = frame_slice * 8;
-		advance.physics_steps = 8;
+	static const int max_physics_steps = 8;
+	if (fixed_fps == -1 && advance.physics_steps > max_physics_steps) {
+		step -= (advance.physics_steps - max_physics_steps) * frame_slice;
+		advance.physics_steps = max_physics_steps;
 	}
 
 	float time_scale = Engine::get_singleton()->get_time_scale();
