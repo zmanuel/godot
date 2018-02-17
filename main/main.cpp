@@ -1205,10 +1205,7 @@ protected:
 	_FrameTime advance_core(float p_frame_slice, int p_iterations_per_second, float p_animation_step) {
 		_FrameTime ret;
 
-		if (fixed_fps != -1)
-			ret.animation_step = 1.0 / fixed_fps;
-		else
-			ret.animation_step = p_animation_step;
+		ret.animation_step = p_animation_step;
 
 		// simple determination of number of physics iteration
 		time_accum += ret.animation_step;
@@ -1230,6 +1227,9 @@ protected:
 
 	// calls advance_core, keeps track of deficit it adds to animaption_step, make sure the deficit sum stays close to zero
 	_FrameTime advance_checked(float p_frame_slice, int p_iterations_per_second, float p_animation_step) {
+		if (fixed_fps != -1)
+			p_animation_step = 1.0 / fixed_fps;
+
 		// compensate for last deficit
 		p_animation_step += time_deficit;
 
