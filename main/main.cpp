@@ -905,6 +905,7 @@ Error Main::setup(const char *execpath, int argc, char *argv[], bool p_second_ph
 
 	Engine::get_singleton()->set_iterations_per_second(GLOBAL_DEF("physics/common/physics_fps", 60));
 	Engine::get_singleton()->set_physics_steps_change_threshold(GLOBAL_DEF("physics/common/physics_steps_change_threshold", 0.02));
+	Engine::get_singleton()->set_max_pending_frames(GLOBAL_DEF("rendering/threads/max_pending_frames", 3));
 	Engine::get_singleton()->set_target_fps(GLOBAL_DEF("debug/settings/fps/force_fps", 0));
 
 	GLOBAL_DEF("debug/settings/stdout/print_fps", OS::get_singleton()->is_stdout_verbose());
@@ -1348,6 +1349,12 @@ protected:
 		return gpu_ticks_elapsed / 1000000000.0;
 	}
 
+	// returns the maximum number of frames that should be pending in the various pipeleines
+	// when we begin processing input
+	int get_max_pending_frames() {
+		return Engine::get_singleton()->get_max_pending_frames();
+	}
+
 public:
 	_TimerSyncGPU() :
 			last_gpu_ticks_nsec(-1),
@@ -1392,7 +1399,10 @@ public:
 			// one to the other.
 			time_deficit += animation_step - cpu_animation_step;
 
-			float tolerance = gpu_animation_step + cpu_animation_step + cpu_spread + gpu_spread;
+			float tolerance = (gpu_animation_step < cpu_animation_step ? gpu_animation_step : cpu_animation_step);
+			tolerance += cpu_spread + gpu_spread;
+			tolerance *= .5 * (get_max_pending_frames() + 1);
+
 			if (time_deficit < -tolerance) {
 				animation_step -= time_deficit + tolerance;
 				time_deficit = -tolerance;
@@ -1406,10 +1416,15 @@ public:
 	}
 
 	void before_start_render() {
-		set_gpu_ticks_nsec(VisualServer::get_singleton()->sync(1));
+		int max_pending_frames = get_max_pending_frames();
+		if (max_pending_frames != 0)
+			set_gpu_ticks_nsec(VisualServer::get_singleton()->sync(max_pending_frames - 1));
 	}
 
 	void before_process_input() {
+		int max_pending_frames = get_max_pending_frames();
+		if (max_pending_frames == 0)
+			set_gpu_ticks_nsec(VisualServer::get_singleton()->sync(0));
 	}
 };
 
