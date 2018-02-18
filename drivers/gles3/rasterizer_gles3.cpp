@@ -377,16 +377,18 @@ struct _PendingFrame {
 class _PendingFrameWaiter {
 	Vector<_PendingFrame> pending_frames;
 	int max_pending_frames;
+
 public:
-	_PendingFrameWaiter() : max_pending_frames(4){}
+	_PendingFrameWaiter() :
+			max_pending_frames(4) {}
 	~_PendingFrameWaiter() {
 		for (int i = pending_frames.size() - 1; i >= 0; --i) {
 			pending_frames[i].free();
 		}
 	}
 	void push() {
-		if(pending_frames.size() > max_pending_frames + 4)
-			return;// overflow protection: if pop is not called often enough, do not fill up buffer.
+		if (pending_frames.size() > max_pending_frames + 4)
+			return; // overflow protection: if pop is not called often enough, do not fill up buffer.
 
 		_PendingFrame frame;
 		glGenQueries(1, &frame.query_handler);
@@ -396,7 +398,7 @@ public:
 	}
 	GLint64 pop(int p_max_pending_frames) {
 		max_pending_frames = p_max_pending_frames > 0 ? p_max_pending_frames : 0;
-		if (pending_frames.empty())
+		if (pending_frames.empty() || p_max_pending_frames < 0)
 			return -1;
 
 		GLuint64 time = -1;

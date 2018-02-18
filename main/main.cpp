@@ -1284,7 +1284,7 @@ public:
 	}
 
 	void before_start_render() {
-		VisualServer::get_singleton()->sync();
+		VisualServer::get_singleton()->sync(-1);
 	}
 
 	void before_process_input() {
@@ -1406,7 +1406,7 @@ public:
 	}
 
 	void before_start_render() {
-		set_gpu_ticks_nsec(VisualServer::get_singleton()->sync());
+		set_gpu_ticks_nsec(VisualServer::get_singleton()->sync(1));
 	}
 
 	void before_process_input() {
