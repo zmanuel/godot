@@ -1226,6 +1226,14 @@ Error Main::setup2(Thread::ID p_main_tid_override) {
 struct _FrameTime {
 	float animation_step; // time to advance animations for (argument to process())
 	int physics_steps; // number of times to iterate the physics engine
+
+	void clamp_animation(float min_animation_step, float max_animation_step) {
+		if (animation_step < min_animation_step) {
+			animation_step = min_animation_step;
+		} else if (animation_step > max_animation_step) {
+			animation_step = max_animation_step;
+		}
+	}
 };
 
 class _TimerSync {
@@ -1287,14 +1295,22 @@ protected:
 
 		_FrameTime ret = advance_core(p_frame_slice, p_iterations_per_second, p_max_clock_deviation, p_animation_step);
 
-		// make sure time_accum is between 0 and p_frame_slice, correct the animation step for consistency
-		if (time_accum < 0) {
-			ret.animation_step -= time_accum;
-			time_accum = 0;
-		} else if (time_accum > p_frame_slice) {
-			ret.animation_step += p_frame_slice - time_accum;
-			time_accum = p_frame_slice;
-		}
+		// we will do some clamping on ret.animation_step and need to sync those changes to time_accum,
+		// that's easiest if we just remember their fixed difference now
+		const double animation_minus_accum = ret.animation_step - time_accum;
+
+		// first, least important clamping: keep ret.animation_step consistent with typical_physics_steps.
+		// this smoothes out the animation steps and culls small but quick variations.
+		ret.clamp_animation(typical_physics_steps * p_frame_slice, (typical_physics_steps + 1) * p_frame_slice);
+
+		// second clamping: keep abs(time_deficit) < p_max_clock_deviation
+		ret.clamp_animation(p_animation_step - p_max_clock_deviation, p_animation_step + p_max_clock_deviation);
+
+		// last clamping: make sure time_accum is between 0 and p_frame_slice for consistency between physics and animation
+		ret.clamp_animation(animation_minus_accum, animation_minus_accum + p_frame_slice);
+
+		// restore time_accum
+		time_accum = ret.animation_step - animation_minus_accum;
 
 		// track deficit
 		time_deficit = p_animation_step - ret.animation_step;
