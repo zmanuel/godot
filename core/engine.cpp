@@ -43,6 +43,8 @@ int Engine::get_iterations_per_second() const {
 }
 
 void Engine::set_physics_jitter_fix(float p_threshold) {
+	if (p_threshold < 0)
+		p_threshold = 0;
 	physics_jitter_fix = p_threshold;
 }
 
@@ -145,7 +147,7 @@ Engine::Engine() {
 	singleton = this;
 	frames_drawn = 0;
 	ips = 60;
-	physics_jitter_fix = 0.05;
+	physics_jitter_fix = 0.5;
 	_frame_delay = 0;
 	_fps = 1;
 	_target_fps = 0;
