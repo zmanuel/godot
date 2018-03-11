@@ -1239,17 +1239,8 @@ class _TimerSync {
 	// current difference between wall clock time and reported sum of animation_steps
 	float time_deficit;
 
-	// number of frames back for keeping accumulated physics steps roughly constant.
-	// value of 12 chosen because that is what is required to make 144 Hz monitors
-	// behave well with 60 Hz physics updates. The only worse commonly available refresh
-	// would be 85, requiring CONTROL_STEPS = 17.
-	static const int CONTROL_STEPS = 12;
-
-	// sum of physics steps done over the last x frames
-	int accumulated_physics_steps[CONTROL_STEPS];
-
-	// typical value for accumulated_physics_steps[x] is either this or this plus one
-	int typical_physics_steps[CONTROL_STEPS];
+	// typical value for physics_steps is either this or this plus one
+	int typical_physics_steps;
 
 protected:
 	// returns the fraction of p_frame_slice required for the timer to overshoot
@@ -1270,53 +1261,16 @@ protected:
 		time_accum += ret.animation_step;
 		ret.physics_steps = floor(time_accum * p_iterations_per_second);
 
-		int min_typical_steps = typical_physics_steps[0];
-		int max_typical_steps = min_typical_steps + 1;
-
-		// given the past recorded steps and typcial steps to match, calculate bounds for this
-		// step to be typical
-		bool update_typical = false;
-
-		for (int i = CONTROL_STEPS - 2; i >= 0; --i) {
-			int steps_left_to_match_typical = typical_physics_steps[i + 1] - accumulated_physics_steps[i];
-			if (steps_left_to_match_typical > max_typical_steps ||
-					steps_left_to_match_typical + 1 < min_typical_steps) {
-				update_typical = true;
-				break;
-			}
-
-			if (steps_left_to_match_typical > min_typical_steps)
-				min_typical_steps = steps_left_to_match_typical;
-			if (steps_left_to_match_typical + 1 < max_typical_steps)
-				max_typical_steps = steps_left_to_match_typical + 1;
-		}
-
 		// try to keep it consistent with previous iterations
-		if (ret.physics_steps < min_typical_steps) {
+		if (ret.physics_steps < typical_physics_steps) {
 			ret.physics_steps = floor(time_accum * p_iterations_per_second + get_physics_steps_change_threshold());
-			update_typical = true;
-		} else if (ret.physics_steps > max_typical_steps) {
+			typical_physics_steps = ret.physics_steps;
+		} else if (ret.physics_steps > typical_physics_steps + 1) {
 			ret.physics_steps = floor(time_accum * p_iterations_per_second - get_physics_steps_change_threshold());
-			update_typical = true;
+			typical_physics_steps = ret.physics_steps - 1;
 		}
 
 		time_accum -= ret.physics_steps * p_frame_slice;
-
-		// keep track of accumulated step counts
-		for (int i = CONTROL_STEPS - 2; i >= 0; --i) {
-			accumulated_physics_steps[i + 1] = accumulated_physics_steps[i] + ret.physics_steps;
-		}
-		accumulated_physics_steps[0] = ret.physics_steps;
-
-		if (update_typical) {
-			for (int i = CONTROL_STEPS - 1; i >= 0; --i) {
-				if (typical_physics_steps[i] > accumulated_physics_steps[i]) {
-					typical_physics_steps[i] = accumulated_physics_steps[i];
-				} else if (typical_physics_steps[i] < accumulated_physics_steps[i] - 1) {
-					typical_physics_steps[i] = accumulated_physics_steps[i] - 1;
-				}
-			}
-		}
 
 		return ret;
 	}
@@ -1359,11 +1313,8 @@ public:
 			last_cpu_ticks_usec(0),
 			current_cpu_ticks_usec(0),
 			time_accum(0),
-			time_deficit(0) {
-		for (int i = CONTROL_STEPS - 1; i >= 0; --i) {
-			typical_physics_steps[i] = 0;
-			accumulated_physics_steps[i] = 0;
-		}
+			time_deficit(0),
+			typical_physics_steps(1) {
 	}
 
 	// start the clock
