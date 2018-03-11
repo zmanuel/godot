@@ -1359,7 +1359,7 @@ protected:
 	// returns the fraction of p_frame_slice required for the timer to overshoot
 	// before advance_core considers changing the physics_steps return from
 	// the typical values as defined by typical_physics_steps
-	float get_physics_steps_change_threshold() {
+	float get_physics_jitter_fix() {
 		return Engine::get_singleton()->get_physics_jitter_fix();
 	}
 
@@ -1367,7 +1367,7 @@ protected:
 		const int subdivisions = get_subdivisions();
 
 		// calls advance_checked on base class, pretending the physics timesteps are much smaller than in reality
-		_FrameTime ret = _TimerSync::advance_checked(p_frame_slice / subdivisions, p_iterations_per_second * subdivisions, get_physics_steps_change_threshold() * p_frame_slice, p_animation_step);
+		_FrameTime ret = _TimerSync::advance_checked(p_frame_slice / subdivisions, p_iterations_per_second * subdivisions, get_physics_jitter_fix() * p_frame_slice, p_animation_step);
 
 		// adapt back to real physics steps
 		substeps_accum += ret.physics_steps;
