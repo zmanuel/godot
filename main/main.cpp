@@ -1255,9 +1255,8 @@ protected:
 	// returns the fraction of p_frame_slice required for the timer to overshoot
 	// before advance_core considers changing the physics_steps return from
 	// the typical values as defined by typical_physics_steps
-	float get_physics_steps_change_threshold() {
-		float ret = Engine::get_singleton()->get_physics_jitter_fix();
-		return ret < 1 ? ret : 1;
+	float get_physics_jitter_fix() {
+		return Engine::get_singleton()->get_physics_jitter_fix();
 	}
 
 	// advance physics clock by p_animation_step, return appropriate number of steps to simulate
@@ -1293,11 +1292,21 @@ protected:
 
 		// try to keep it consistent with previous iterations
 		if (ret.physics_steps < min_typical_steps) {
-			ret.physics_steps = floor(time_accum * p_iterations_per_second + get_physics_steps_change_threshold());
-			update_typical = true;
+			const int physics_steps_max = floor((time_accum)*p_iterations_per_second + get_physics_jitter_fix());
+			if (physics_steps_max < min_typical_steps) {
+				ret.physics_steps = physics_steps_max;
+				update_typical = true;
+			} else {
+				ret.physics_steps = min_typical_steps;
+			}
 		} else if (ret.physics_steps > max_typical_steps) {
-			ret.physics_steps = floor(time_accum * p_iterations_per_second - get_physics_steps_change_threshold());
-			update_typical = true;
+			const int physics_steps_min = floor((time_accum)*p_iterations_per_second - get_physics_jitter_fix());
+			if (physics_steps_min > max_typical_steps) {
+				ret.physics_steps = physics_steps_min;
+				update_typical = true;
+			} else {
+				ret.physics_steps = physics_steps_min;
+			}
 		}
 
 		time_accum -= ret.physics_steps * p_frame_slice;
