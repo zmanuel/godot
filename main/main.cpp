@@ -1226,14 +1226,6 @@ Error Main::setup2(Thread::ID p_main_tid_override) {
 struct _FrameTime {
 	float animation_step; // time to advance animations for (argument to process())
 	int physics_steps; // number of times to iterate the physics engine
-
-	void clamp_animation(float min_animation_step, float max_animation_step) {
-		if (animation_step < min_animation_step) {
-			animation_step = min_animation_step;
-		} else if (animation_step > max_animation_step) {
-			animation_step = max_animation_step;
-		}
-	}
 };
 
 class _TimerSync {
@@ -1247,12 +1239,29 @@ class _TimerSync {
 	// current difference between wall clock time and reported sum of animation_steps
 	float time_deficit;
 
-	// typical value for physics_steps is either this or this plus one
-	int typical_physics_steps;
+	// number of frames back for keeping accumulated physics steps roughly constant.
+	// value of 12 chosen because that is what is required to make 144 Hz monitors
+	// behave well with 60 Hz physics updates. The only worse commonly available refresh
+	// would be 85, requiring CONTROL_STEPS = 17.
+	static const int CONTROL_STEPS = 12;
+
+	// sum of physics steps done over the last x frames
+	int accumulated_physics_steps[CONTROL_STEPS];
+
+	// typical value for accumulated_physics_steps[x] is either this or this plus one
+	int typical_physics_steps[CONTROL_STEPS];
 
 protected:
+	// returns the fraction of p_frame_slice required for the timer to overshoot
+	// before advance_core considers changing the physics_steps return from
+	// the typical values as defined by typical_physics_steps
+	float get_physics_steps_change_threshold() {
+		float ret = Engine::get_singleton()->get_physics_jitter_fix();
+		return ret < 1 ? ret : 1;
+	}
+
 	// advance physics clock by p_animation_step, return appropriate number of steps to simulate
-	_FrameTime advance_core(float p_frame_slice, int p_iterations_per_second, float p_max_clock_deviation, float p_animation_step) {
+	_FrameTime advance_core(float p_frame_slice, int p_iterations_per_second, float p_animation_step) {
 		_FrameTime ret;
 
 		ret.animation_step = p_animation_step;
@@ -1261,56 +1270,75 @@ protected:
 		time_accum += ret.animation_step;
 		ret.physics_steps = floor(time_accum * p_iterations_per_second);
 
+		int min_typical_steps = typical_physics_steps[0];
+		int max_typical_steps = min_typical_steps + 1;
+
+		// given the past recorded steps and typcial steps to match, calculate bounds for this
+		// step to be typical
+		bool update_typical = false;
+
+		for (int i = CONTROL_STEPS - 2; i >= 0; --i) {
+			int steps_left_to_match_typical = typical_physics_steps[i + 1] - accumulated_physics_steps[i];
+			if (steps_left_to_match_typical > max_typical_steps ||
+					steps_left_to_match_typical + 1 < min_typical_steps) {
+				update_typical = true;
+				break;
+			}
+
+			if (steps_left_to_match_typical > min_typical_steps)
+				min_typical_steps = steps_left_to_match_typical;
+			if (steps_left_to_match_typical + 1 < max_typical_steps)
+				max_typical_steps = steps_left_to_match_typical + 1;
+		}
+
 		// try to keep it consistent with previous iterations
-		if (ret.physics_steps < typical_physics_steps) {
-			const int physics_steps_max = floor((time_accum + p_max_clock_deviation) * p_iterations_per_second);
-			if (physics_steps_max < typical_physics_steps) {
-				ret.physics_steps = physics_steps_max;
-				typical_physics_steps = ret.physics_steps;
-			} else {
-				ret.physics_steps = typical_physics_steps;
-			}
-		} else if (ret.physics_steps > typical_physics_steps + 1) {
-			const int physics_steps_min = floor((time_accum - p_max_clock_deviation) * p_iterations_per_second);
-			if (physics_steps_min > typical_physics_steps + 1) {
-				ret.physics_steps = physics_steps_min;
-				typical_physics_steps = ret.physics_steps - 1;
-			} else {
-				ret.physics_steps = typical_physics_steps + 1;
-			}
+		if (ret.physics_steps < min_typical_steps) {
+			ret.physics_steps = floor(time_accum * p_iterations_per_second + get_physics_steps_change_threshold());
+			update_typical = true;
+		} else if (ret.physics_steps > max_typical_steps) {
+			ret.physics_steps = floor(time_accum * p_iterations_per_second - get_physics_steps_change_threshold());
+			update_typical = true;
 		}
 
 		time_accum -= ret.physics_steps * p_frame_slice;
+
+		// keep track of accumulated step counts
+		for (int i = CONTROL_STEPS - 2; i >= 0; --i) {
+			accumulated_physics_steps[i + 1] = accumulated_physics_steps[i] + ret.physics_steps;
+		}
+		accumulated_physics_steps[0] = ret.physics_steps;
+
+		if (update_typical) {
+			for (int i = CONTROL_STEPS - 1; i >= 0; --i) {
+				if (typical_physics_steps[i] > accumulated_physics_steps[i]) {
+					typical_physics_steps[i] = accumulated_physics_steps[i];
+				} else if (typical_physics_steps[i] < accumulated_physics_steps[i] - 1) {
+					typical_physics_steps[i] = accumulated_physics_steps[i] - 1;
+				}
+			}
+		}
 
 		return ret;
 	}
 
 	// calls advance_core, keeps track of deficit it adds to animaption_step, make sure the deficit sum stays close to zero
-	_FrameTime advance_checked(float p_frame_slice, int p_iterations_per_second, float p_max_clock_deviation, float p_animation_step) {
+	_FrameTime advance_checked(float p_frame_slice, int p_iterations_per_second, float p_animation_step) {
 		if (fixed_fps != -1)
 			p_animation_step = 1.0 / fixed_fps;
 
 		// compensate for last deficit
 		p_animation_step += time_deficit;
 
-		_FrameTime ret = advance_core(p_frame_slice, p_iterations_per_second, p_max_clock_deviation, p_animation_step);
+		_FrameTime ret = advance_core(p_frame_slice, p_iterations_per_second, p_animation_step);
 
-		// we will do some clamping on ret.animation_step and need to sync those changes to time_accum,
-		// that's easiest if we just remember their fixed difference now
-		const double animation_minus_accum = ret.animation_step - time_accum;
-
-		// first, least important clamping: keep ret.animation_step consistent with typical_physics_steps.
-		// this smoothes out the animation steps and culls small but quick variations.
-		ret.clamp_animation(typical_physics_steps * p_frame_slice, (typical_physics_steps + 1) * p_frame_slice);
-
-		// second clamping: keep abs(time_deficit) < p_max_clock_deviation
-		ret.clamp_animation(p_animation_step - p_max_clock_deviation, p_animation_step + p_max_clock_deviation);
-
-		// last clamping: make sure time_accum is between 0 and p_frame_slice for consistency between physics and animation
-		ret.clamp_animation(animation_minus_accum, animation_minus_accum + p_frame_slice);
-
-		// restore time_accum
-		time_accum = ret.animation_step - animation_minus_accum;
+		// make sure time_accum is between 0 and p_frame_slice, correct the animation step for consistency
+		if (time_accum < 0) {
+			ret.animation_step -= time_accum;
+			time_accum = 0;
+		} else if (time_accum > p_frame_slice) {
+			ret.animation_step += p_frame_slice - time_accum;
+			time_accum = p_frame_slice;
+		}
 
 		// track deficit
 		time_deficit = p_animation_step - ret.animation_step;
@@ -1320,19 +1348,22 @@ protected:
 
 	// determine wall clock step since last iteration
 	float get_cpu_animation_step() {
-		const uint64_t cpu_ticks_elapsed = current_cpu_ticks_usec - last_cpu_ticks_usec;
+		uint64_t cpu_ticks_elapsed = current_cpu_ticks_usec - last_cpu_ticks_usec;
 		last_cpu_ticks_usec = current_cpu_ticks_usec;
 
 		return cpu_ticks_elapsed / 1000000.0;
 	}
 
 public:
-	explicit _TimerSync(int p_typical_physics_steps = 0) :
+	explicit _TimerSync() :
 			last_cpu_ticks_usec(0),
 			current_cpu_ticks_usec(0),
 			time_accum(0),
-			time_deficit(0),
-			typical_physics_steps(p_typical_physics_steps) {
+			time_deficit(0) {
+		for (int i = CONTROL_STEPS - 1; i >= 0; --i) {
+			typical_physics_steps[i] = 0;
+			accumulated_physics_steps[i] = 0;
+		}
 	}
 
 	// start the clock
@@ -1345,52 +1376,19 @@ public:
 		current_cpu_ticks_usec = p_cpu_ticks_usec;
 	}
 
+	// advance one frame, return timesteps to take
+	_FrameTime advance(float p_frame_slice, int p_iterations_per_second) {
+		float cpu_animation_step = get_cpu_animation_step();
+
+		return advance_checked(p_frame_slice, p_iterations_per_second, cpu_animation_step);
+	}
+
 	void before_start_render() {
 		VisualServer::get_singleton()->sync();
 	}
 };
 
-class _TimerSyncSubsteps : public _TimerSync {
-	int substeps_accum;
-
-	static int get_subdivisions() { return 12; }
-
-protected:
-	// returns the fraction of p_frame_slice required for the timer to overshoot
-	// before advance_core considers changing the physics_steps return from
-	// the typical values as defined by typical_physics_steps
-	float get_physics_jitter_fix() {
-		return Engine::get_singleton()->get_physics_jitter_fix();
-	}
-
-	_FrameTime advance_checked(float p_frame_slice, int p_iterations_per_second, float p_animation_step) {
-		const int subdivisions = get_subdivisions();
-
-		// calls advance_checked on base class, pretending the physics timesteps are much smaller than in reality
-		_FrameTime ret = _TimerSync::advance_checked(p_frame_slice / subdivisions, p_iterations_per_second * subdivisions, get_physics_jitter_fix() * p_frame_slice, p_animation_step);
-
-		// adapt back to real physics steps
-		substeps_accum += ret.physics_steps;
-		ret.physics_steps = substeps_accum / subdivisions;
-		substeps_accum -= ret.physics_steps * subdivisions;
-
-		return ret;
-	}
-
-public:
-	_TimerSyncSubsteps() :
-			_TimerSync(get_subdivisions()),
-			substeps_accum(0) {}
-
-	// advance one frame, return timesteps to take
-	_FrameTime advance(float p_frame_slice, int p_iterations_per_second) {
-		const float cpu_animation_step = get_cpu_animation_step();
-
-		return advance_checked(p_frame_slice, p_iterations_per_second, cpu_animation_step);
-	}
-};
-
-static _TimerSyncSubsteps _timer_sync;
+static _TimerSync _timer_sync;
 
 bool Main::start() {
 
