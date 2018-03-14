@@ -1226,6 +1226,14 @@ Error Main::setup2(Thread::ID p_main_tid_override) {
 struct _FrameTime {
 	float animation_step; // time to advance animations for (argument to process())
 	int physics_steps; // number of times to iterate the physics engine
+
+	void clamp_animation(float min_animation_step, float max_animation_step) {
+		if (animation_step < min_animation_step) {
+			animation_step = min_animation_step;
+		} else if (animation_step > max_animation_step) {
+			animation_step = max_animation_step;
+		}
+	}
 };
 
 class _TimerSync {
@@ -1257,6 +1265,29 @@ protected:
 	// the typical values as defined by typical_physics_steps
 	float get_physics_jitter_fix() {
 		return Engine::get_singleton()->get_physics_jitter_fix();
+	}
+
+	// gets our best bet for the average number of physics steps per render frame
+	// return value: number of frames back this data is consistent
+	int get_average_physics_steps(float &p_min, float &p_max) {
+		p_min = typical_physics_steps[0];
+		p_max = p_min + 1;
+
+		for (int i = 1; i < CONTROL_STEPS; ++i) {
+			const float typical_lower = typical_physics_steps[i];
+			const float current_min = typical_lower / (i + 1);
+			if (current_min > p_max)
+				return i; // bail out of further restrictions would void the interval
+			else if (current_min > p_min)
+				p_min = current_min;
+			const float current_max = (typical_lower + 1) / (i + 1);
+			if (current_max < p_min)
+				return i;
+			else if (current_max < p_max)
+				p_max = current_max;
+		}
+
+		return CONTROL_STEPS;
 	}
 
 	// advance physics clock by p_animation_step, return appropriate number of steps to simulate
@@ -1340,14 +1371,29 @@ protected:
 
 		_FrameTime ret = advance_core(p_frame_slice, p_iterations_per_second, p_animation_step);
 
-		// make sure time_accum is between 0 and p_frame_slice, correct the animation step for consistency
-		if (time_accum < 0) {
-			ret.animation_step -= time_accum;
-			time_accum = 0;
-		} else if (time_accum > p_frame_slice) {
-			ret.animation_step += p_frame_slice - time_accum;
-			time_accum = p_frame_slice;
+		// we will do some clamping on ret.animation_step and need to sync those changes to time_accum,
+		// that's easiest if we just remember their fixed difference now
+		const double animation_minus_accum = ret.animation_step - time_accum;
+
+		// first, least important clamping: keep ret.animation_step consistent with typical_physics_steps.
+		// this smoothes out the animation steps and culls small but quick variations.
+		{
+			float min_average_physics_steps, max_average_physics_steps;
+			int consistent_steps = get_average_physics_steps(min_average_physics_steps, max_average_physics_steps);
+			if (consistent_steps > 3) {
+				ret.clamp_animation(min_average_physics_steps * p_frame_slice, max_average_physics_steps * p_frame_slice);
+			}
 		}
+
+		// second clamping: keep abs(time_deficit) < jitter_fix * frame_slise
+		float max_clock_deviation = get_physics_jitter_fix() * p_frame_slice;
+		ret.clamp_animation(p_animation_step - max_clock_deviation, p_animation_step + max_clock_deviation);
+
+		// last clamping: make sure time_accum is between 0 and p_frame_slice for consistency between physics and animation
+		ret.clamp_animation(animation_minus_accum, animation_minus_accum + p_frame_slice);
+
+		// restore time_accum
+		time_accum = ret.animation_step - animation_minus_accum;
 
 		// track deficit
 		time_deficit = p_animation_step - ret.animation_step;
