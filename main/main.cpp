@@ -1245,10 +1245,10 @@ class _TimerSync {
 	// would be 85, requiring CONTROL_STEPS = 17.
 	static const int CONTROL_STEPS = 12;
 
-	// sum of physics steps done over the last x frames
+	// sum of physics steps done over the last (i+1) frames
 	int accumulated_physics_steps[CONTROL_STEPS];
 
-	// typical value for accumulated_physics_steps[x] is either this or this plus one
+	// typical value for accumulated_physics_steps[i] is either this or this plus one
 	int typical_physics_steps[CONTROL_STEPS];
 
 protected:
@@ -1276,7 +1276,7 @@ protected:
 		// step to be typical
 		bool update_typical = false;
 
-		for (int i = CONTROL_STEPS - 2; i >= 0; --i) {
+		for (int i = 0; i < CONTROL_STEPS - 1; ++i) {
 			int steps_left_to_match_typical = typical_physics_steps[i + 1] - accumulated_physics_steps[i];
 			if (steps_left_to_match_typical > max_typical_steps ||
 					steps_left_to_match_typical + 1 < min_typical_steps) {
@@ -1292,20 +1292,20 @@ protected:
 
 		// try to keep it consistent with previous iterations
 		if (ret.physics_steps < min_typical_steps) {
-			const int physics_steps_max = floor((time_accum)*p_iterations_per_second + get_physics_jitter_fix());
-			if (physics_steps_max < min_typical_steps) {
-				ret.physics_steps = physics_steps_max;
+			const int max_possible_steps = floor((time_accum)*p_iterations_per_second + get_physics_jitter_fix());
+			if (max_possible_steps < min_typical_steps) {
+				ret.physics_steps = max_possible_steps;
 				update_typical = true;
 			} else {
 				ret.physics_steps = min_typical_steps;
 			}
 		} else if (ret.physics_steps > max_typical_steps) {
-			const int physics_steps_min = floor((time_accum)*p_iterations_per_second - get_physics_jitter_fix());
-			if (physics_steps_min > max_typical_steps) {
-				ret.physics_steps = physics_steps_min;
+			const int min_possible_steps = floor((time_accum)*p_iterations_per_second - get_physics_jitter_fix());
+			if (min_possible_steps > max_typical_steps) {
+				ret.physics_steps = min_possible_steps;
 				update_typical = true;
 			} else {
-				ret.physics_steps = physics_steps_min;
+				ret.physics_steps = max_typical_steps;
 			}
 		}
 
@@ -1370,8 +1370,8 @@ public:
 			time_accum(0),
 			time_deficit(0) {
 		for (int i = CONTROL_STEPS - 1; i >= 0; --i) {
-			typical_physics_steps[i] = 0;
-			accumulated_physics_steps[i] = 0;
+			typical_physics_steps[i] = i;
+			accumulated_physics_steps[i] = i;
 		}
 	}
 
