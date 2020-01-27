@@ -57,7 +57,7 @@ int MainTimerSync::get_average_physics_steps(float &p_min, float &p_max) {
 		const float typical_lower = typical_physics_steps[i];
 		const float current_min = typical_lower / (i + 1);
 		if (current_min > p_max)
-			return i; // bail out of further restrictions would void the interval
+			return i; // bail out if further restrictions would void the interval
 		else if (current_min > p_min)
 			p_min = current_min;
 		const float current_max = (typical_lower + 1) / (i + 1);
@@ -78,8 +78,10 @@ MainFrameTime MainTimerSync::advance_core(float p_frame_slice, int p_iterations_
 
 	// simple determination of number of physics iteration
 	time_accum += ret.idle_step;
+	CRASH_COND(time_accum <= 0);
 	ret.physics_steps = floor(time_accum * p_iterations_per_second);
-
+	CRASH_COND(ret.physics_steps < 0);
+	
 	int min_typical_steps = typical_physics_steps[0];
 	int max_typical_steps = min_typical_steps + 1;
 
@@ -101,9 +103,13 @@ MainFrameTime MainTimerSync::advance_core(float p_frame_slice, int p_iterations_
 			max_typical_steps = steps_left_to_match_typical + 1;
 	}
 
+	CRASH_COND(max_typical_steps < 0);
+	CRASH_COND(min_typical_steps < 0);
+	
 	// try to keep it consistent with previous iterations
 	if (ret.physics_steps < min_typical_steps) {
 		const int max_possible_steps = floor((time_accum)*p_iterations_per_second + get_physics_jitter_fix());
+		CRASH_COND(max_possible_steps < 0);
 		if (max_possible_steps < min_typical_steps) {
 			ret.physics_steps = max_possible_steps;
 			update_typical = true;
@@ -119,6 +125,10 @@ MainFrameTime MainTimerSync::advance_core(float p_frame_slice, int p_iterations_
 			ret.physics_steps = max_typical_steps;
 		}
 	}
+
+	CRASH_COND(ret.physics_steps < 0);
+	if (ret.physics_steps < 0)
+		ret.physics_steps = 0;
 
 	time_accum -= ret.physics_steps * p_frame_slice;
 
@@ -146,10 +156,14 @@ MainFrameTime MainTimerSync::advance_checked(float p_frame_slice, int p_iteratio
 	if (fixed_fps != -1)
 		p_idle_step = 1.0 / fixed_fps;
 
-	// compensate for last deficit
-	p_idle_step += time_deficit;
+	// compensate for last deficit, but not so far that the timestep gets smaller than one tick
+	const float idle_step_raw = p_idle_step + time_deficit;
+	float idle_step_sanitized = idle_step_raw;
+	const float min_step = 1 / 1000000.0;
+	if (idle_step_sanitized < min_step)
+		idle_step_sanitized = min_step;
 
-	MainFrameTime ret = advance_core(p_frame_slice, p_iterations_per_second, p_idle_step);
+	MainFrameTime ret = advance_core(p_frame_slice, p_iterations_per_second, idle_step_sanitized);
 
 	// we will do some clamping on ret.idle_step and need to sync those changes to time_accum,
 	// that's easiest if we just remember their fixed difference now
@@ -167,16 +181,18 @@ MainFrameTime MainTimerSync::advance_checked(float p_frame_slice, int p_iteratio
 
 	// second clamping: keep abs(time_deficit) < jitter_fix * frame_slise
 	float max_clock_deviation = get_physics_jitter_fix() * p_frame_slice;
-	ret.clamp_idle(p_idle_step - max_clock_deviation, p_idle_step + max_clock_deviation);
+	ret.clamp_idle(idle_step_sanitized - max_clock_deviation, idle_step_sanitized + max_clock_deviation);
 
 	// last clamping: make sure time_accum is between 0 and p_frame_slice for consistency between physics and idle
 	ret.clamp_idle(idle_minus_accum, idle_minus_accum + p_frame_slice);
 
 	// restore time_accum
 	time_accum = ret.idle_step - idle_minus_accum;
+	CRASH_COND(time_accum < 0);
+	CRASH_COND(time_accum > p_frame_slice);
 
 	// track deficit
-	time_deficit = p_idle_step - ret.idle_step;
+	time_deficit = idle_step_raw - ret.idle_step;
 
 	// p_frame_slice is 1.0 / iterations_per_sec
 	// i.e. the time in seconds taken by a physics tick
