@@ -31,7 +31,7 @@
 #include "main_timer_sync.h"
 
 #ifdef DEBUG_ENABLED
-// enable to get diagnostics from here
+// enable to get extra diagnostics from here
 // #define SYNC_TIMER_DEBUG_ENABLED
 #endif
 
@@ -106,9 +106,13 @@ MainFrameTime MainTimerSync::advance_core(float p_frame_slice, int p_iterations_
 			max_typical_steps = steps_left_to_match_typical + 1;
 	}
 
-#ifdef SYNC_TIMER_DEBUG_ENABLED
-	CRASH_COND(max_typical_steps < 0);
-	CRASH_COND(min_typical_steps < 0);
+#ifdef DEBUG_ENABLED
+	if (max_typical_steps < 0) {
+		WARN_PRINT_ONCE("max_typical_steps is negative");
+	}
+	if (min_typical_steps < 0) {
+		WARN_PRINT_ONCE("min_typical_steps is negative");
+	}
 #endif
 
 	// try to keep it consistent with previous iterations
@@ -162,8 +166,14 @@ MainFrameTime MainTimerSync::advance_core(float p_frame_slice, int p_iterations_
 
 // calls advance_core, keeps track of deficit it adds to animaption_step, make sure the deficit sum stays close to zero
 MainFrameTime MainTimerSync::advance_checked(float p_frame_slice, int p_iterations_per_second, float p_idle_step) {
+	if (p_idle_step <= 0) {
+		WARN_PRINT_ONCE("p_idle_step not positive");
+	}
+
 	if (fixed_fps != -1)
 		p_idle_step = 1.0 / fixed_fps;
+
+	const float min_output_step = p_idle_step > 0 ? p_idle_step * .25 : 1E-6;
 
 	// compensate for last deficit
 	p_idle_step += time_deficit;
@@ -191,14 +201,12 @@ MainFrameTime MainTimerSync::advance_checked(float p_frame_slice, int p_iteratio
 	// last clamping: make sure time_accum is between 0 and p_frame_slice for consistency between physics and idle
 	ret.clamp_idle(idle_minus_accum, idle_minus_accum + p_frame_slice);
 
-	// all the operations above may have turned ret.idle_step negative or zero, keep
-	// at least one tick
-	const float min_step = 1 / 1000000.0;
-	if (ret.idle_step < min_step) {
+	// all the operations above may have turned ret.idle_step negative or zero, keep a minimal value
+	if (ret.idle_step < min_output_step) {
 #ifdef SYNC_TIMER_DEBUG_ENABLED
 		WARN_PRINT_ONCE("negative animation timestep calculated");
 #endif
-		ret.idle_step = min_step;
+		ret.idle_step = min_output_step;
 	}
 
 	// restore time_accum
@@ -206,9 +214,12 @@ MainFrameTime MainTimerSync::advance_checked(float p_frame_slice, int p_iteratio
 
 	// forcing ret.idle_step to be positive may trigger a violation of the
 	// promise that time_accum is between 0 and p_frame_slice
-#ifdef SYNC_TIMER_DEBUG_ENABLED
-	CRASH_COND(time_accum < 0);
+#ifdef DEBUG_ENABLED
+	if (time_accum < -1E-7) {
+		WARN_PRINT_ONCE("time_accum negative");
+	}
 #endif
+
 	if (time_accum > p_frame_slice) {
 #ifdef SYNC_TIMER_DEBUG_ENABLED
 		WARN_PRINT_ONCE("extra physics steps required to avoid negative timesteps");
@@ -217,9 +228,14 @@ MainFrameTime MainTimerSync::advance_checked(float p_frame_slice, int p_iteratio
 		time_accum -= extra_physics_steps * p_frame_slice;
 		ret.physics_steps += extra_physics_steps;
 	}
-#ifdef SYNC_TIMER_DEBUG_ENABLED
-	CRASH_COND(time_accum < 0);
-	CRASH_COND(time_accum > p_frame_slice);
+
+#ifdef DEBUG_ENABLED
+	if (time_accum < -1E-7) {
+		WARN_PRINT_ONCE("time_accum negative");
+	}
+	if (time_accum > p_frame_slice + 1E-7) {
+		WARN_PRINT_ONCE("time_accum larger than p_frame_slice");
+	}
 #endif
 
 	// track deficit
