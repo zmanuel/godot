@@ -39,15 +39,10 @@ void VisualServerWrapMT::thread_exit() {
 
 void VisualServerWrapMT::thread_draw(bool p_swap_buffers, double frame_step) {
 
-	if (!atomic_decrement(&draw_pending)) {
-
-		visual_server->draw(p_swap_buffers, frame_step);
-	}
+	visual_server->draw(p_swap_buffers, frame_step);
 }
 
 void VisualServerWrapMT::thread_flush() {
-
-	atomic_decrement(&draw_pending);
 }
 
 void VisualServerWrapMT::_thread_callback(void *_instance) {
@@ -83,7 +78,6 @@ void VisualServerWrapMT::sync() {
 
 	if (create_thread) {
 
-		atomic_increment(&draw_pending);
 		command_queue.push_and_sync(this, &VisualServerWrapMT::thread_flush);
 	} else {
 
@@ -95,7 +89,6 @@ void VisualServerWrapMT::draw(bool p_swap_buffers, double frame_step) {
 
 	if (create_thread) {
 
-		atomic_increment(&draw_pending);
 		command_queue.push(this, &VisualServerWrapMT::thread_draw, p_swap_buffers, frame_step);
 	} else {
 
@@ -178,7 +171,6 @@ VisualServerWrapMT::VisualServerWrapMT(VisualServer *p_contained, bool p_create_
 	visual_server = p_contained;
 	create_thread = p_create_thread;
 	thread = NULL;
-	draw_pending = 0;
 	draw_thread_up = false;
 	alloc_mutex = Mutex::create();
 	pool_max_size = GLOBAL_GET("memory/limits/multithreaded_server/rid_pool_prealloc");

@@ -51,7 +51,6 @@ class VisualServerWrapMT : public VisualServer {
 	volatile bool draw_thread_up;
 	bool create_thread;
 
-	uint64_t draw_pending;
 	void thread_draw(bool p_swap_buffers, double frame_step);
 	void thread_flush();
 
