@@ -43,7 +43,10 @@ void MainFrameTime::clamp_idle(float min_idle_step, float max_idle_step) {
 // returns the fraction of p_frame_slice required for the timer to overshoot
 // before advance_core considers changing the physics_steps return from
 // the typical values as defined by typical_physics_steps
-float MainTimerSync::get_physics_jitter_fix() {
+float MainTimerSync::get_physics_jitter_fix_factual() {
+	return variance.get_variance();
+}
+float MainTimerSync::get_physics_jitter_fix_configured() {
 	return Engine::get_singleton()->get_physics_jitter_fix();
 }
 
@@ -103,7 +106,9 @@ MainFrameTime MainTimerSync::advance_core(float p_frame_slice, int p_iterations_
 
 	// try to keep it consistent with previous iterations
 	if (ret.physics_steps < min_typical_steps) {
-		const int max_possible_steps = floor((time_accum)*p_iterations_per_second + get_physics_jitter_fix());
+		lower_bumps++;
+		upper_bumps = 0;
+		const int max_possible_steps = floor((time_accum)*p_iterations_per_second + get_physics_jitter_fix_configured() / lower_bumps);
 		if (max_possible_steps < min_typical_steps) {
 			ret.physics_steps = max_possible_steps;
 			update_typical = true;
@@ -111,7 +116,9 @@ MainFrameTime MainTimerSync::advance_core(float p_frame_slice, int p_iterations_
 			ret.physics_steps = min_typical_steps;
 		}
 	} else if (ret.physics_steps > max_typical_steps) {
-		const int min_possible_steps = floor((time_accum)*p_iterations_per_second - get_physics_jitter_fix());
+		upper_bumps++;
+		lower_bumps = 0;
+		const int min_possible_steps = floor((time_accum)*p_iterations_per_second - get_physics_jitter_fix_configured() / upper_bumps);
 		if (min_possible_steps > max_typical_steps) {
 			ret.physics_steps = min_possible_steps;
 			update_typical = true;
@@ -146,6 +153,11 @@ MainFrameTime MainTimerSync::advance_checked(float p_frame_slice, int p_iteratio
 	if (fixed_fps != -1)
 		p_idle_step = 1.0 / fixed_fps;
 
+	// measure factual timer jitter
+	variance.collect(p_idle_step * p_iterations_per_second,
+			time_deficit * p_iterations_per_second,
+			get_physics_jitter_fix_configured());
+
 	// compensate for last deficit
 	p_idle_step += time_deficit;
 
@@ -166,7 +178,7 @@ MainFrameTime MainTimerSync::advance_checked(float p_frame_slice, int p_iteratio
 	}
 
 	// second clamping: keep abs(time_deficit) < jitter_fix * frame_slise
-	float max_clock_deviation = get_physics_jitter_fix() * p_frame_slice;
+	float max_clock_deviation = get_physics_jitter_fix_factual() * p_frame_slice;
 	ret.clamp_idle(p_idle_step - max_clock_deviation, p_idle_step + max_clock_deviation);
 
 	// last clamping: make sure time_accum is between 0 and p_frame_slice for consistency between physics and idle
@@ -198,7 +210,9 @@ MainTimerSync::MainTimerSync() :
 		current_cpu_ticks_usec(0),
 		time_accum(0),
 		time_deficit(0),
-		fixed_fps(0) {
+		fixed_fps(0),
+		upper_bumps(0),
+		lower_bumps(0) {
 	for (int i = CONTROL_STEPS - 1; i >= 0; --i) {
 		typical_physics_steps[i] = i;
 		accumulated_physics_steps[i] = i;

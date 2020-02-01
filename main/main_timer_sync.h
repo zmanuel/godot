@@ -32,6 +32,7 @@
 #define MAIN_TIMER_SYNC_H
 
 #include "core/engine.h"
+#include "timer_variance.h"
 
 struct MainFrameTime {
 	float idle_step; // time to advance idles for (argument to process())
@@ -64,13 +65,20 @@ class MainTimerSync {
 	// typical value for accumulated_physics_steps[i] is either this or this plus one
 	int typical_physics_steps[CONTROL_STEPS];
 
+	int upper_bumps;
+	int lower_bumps;
+
 	int fixed_fps;
+
+	// measures input variance in units of physics step size
+	TimerVariance variance;
 
 protected:
 	// returns the fraction of p_frame_slice required for the timer to overshoot
 	// before advance_core considers changing the physics_steps return from
 	// the typical values as defined by typical_physics_steps
-	float get_physics_jitter_fix();
+	float get_physics_jitter_fix_configured();
+	float get_physics_jitter_fix_factual();
 
 	// gets our best bet for the average number of physics steps per render frame
 	// return value: number of frames back this data is consistent
