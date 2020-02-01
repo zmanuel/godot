@@ -85,11 +85,6 @@ float TimerVariance::update_variance() const {
 	const float min_variance = std::min(min_variance_c, min_variance_ab);
 	const float new_variance = raw_variance > min_variance ? raw_variance : min_variance;
 
-	if (min_deficit < 0 && max_deficit > 0) {
-		int x;
-		x = 0;
-	}
-
 	return new_variance;
 }
 
