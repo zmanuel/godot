@@ -143,8 +143,12 @@ MainFrameTime MainTimerSync::advance_core(float p_frame_slice, int p_iterations_
 
 // calls advance_core, keeps track of deficit it adds to animaption_step, make sure the deficit sum stays close to zero
 MainFrameTime MainTimerSync::advance_checked(float p_frame_slice, int p_iterations_per_second, float p_idle_step) {
+	const float jitter_fix = get_physics_jitter_fix();
+
 	if (fixed_fps != -1)
 		p_idle_step = 1.0 / fixed_fps;
+	else if (jitter_fix > 0)
+		p_idle_step = spike_filter.filter(p_idle_step);
 
 	// compensate for last deficit
 	p_idle_step += time_deficit;
@@ -166,7 +170,7 @@ MainFrameTime MainTimerSync::advance_checked(float p_frame_slice, int p_iteratio
 	}
 
 	// second clamping: keep abs(time_deficit) < jitter_fix * frame_slise
-	float max_clock_deviation = get_physics_jitter_fix() * p_frame_slice;
+	float max_clock_deviation = jitter_fix * p_frame_slice;
 	ret.clamp_idle(p_idle_step - max_clock_deviation, p_idle_step + max_clock_deviation);
 
 	// last clamping: make sure time_accum is between 0 and p_frame_slice for consistency between physics and idle
