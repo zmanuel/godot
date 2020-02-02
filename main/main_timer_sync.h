@@ -64,6 +64,14 @@ class MainTimerSync {
 	// typical value for accumulated_physics_steps[i] is either this or this plus one
 	int typical_physics_steps[CONTROL_STEPS];
 
+	static const int MAX_BUMPS = 10000;
+
+	// count how often we have bumped into the same hard typical steps barrier
+	int hard_upper_bumps, hard_lower_bumps;
+
+	// count how often time_deficit has been consistently positive or negative
+	int consistently_negative_deficit, consistently_positive_deficit;
+
 	int fixed_fps;
 
 protected:

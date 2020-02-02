@@ -91,7 +91,11 @@ MainFrameTime MainTimerSync::advance_core(float p_frame_slice, int p_iterations_
 		int steps_left_to_match_typical = typical_physics_steps[i + 1] - accumulated_physics_steps[i];
 		if (steps_left_to_match_typical > max_typical_steps ||
 				steps_left_to_match_typical + 1 < min_typical_steps) {
+
+			// no consistent frame cadence. Temporarily disable everything, let the system catch itself.
 			update_typical = true;
+			min_typical_steps = max_typical_steps = ret.physics_steps;
+			consistently_positive_deficit = consistently_negative_deficit = hard_lower_bumps = hard_upper_bumps = MAX_BUMPS;
 			break;
 		}
 
@@ -103,22 +107,37 @@ MainFrameTime MainTimerSync::advance_core(float p_frame_slice, int p_iterations_
 
 	// try to keep it consistent with previous iterations
 	if (ret.physics_steps < min_typical_steps) {
-		const int max_possible_steps = floor((time_accum)*p_iterations_per_second + get_physics_jitter_fix());
+		if (hard_lower_bumps < MAX_BUMPS)
+			hard_lower_bumps++;
+		hard_upper_bumps = 0;
+		const int max_possible_steps = floor((time_accum)*p_iterations_per_second + get_physics_jitter_fix() / hard_lower_bumps);
 		if (max_possible_steps < min_typical_steps) {
 			ret.physics_steps = max_possible_steps;
 			update_typical = true;
+			// hard_lower_bumps=0;
 		} else {
 			ret.physics_steps = min_typical_steps;
 		}
 	} else if (ret.physics_steps > max_typical_steps) {
-		const int min_possible_steps = floor((time_accum)*p_iterations_per_second - get_physics_jitter_fix());
+		if (hard_upper_bumps < MAX_BUMPS)
+			hard_upper_bumps++;
+		hard_lower_bumps = 0;
+		const int min_possible_steps = floor((time_accum)*p_iterations_per_second - get_physics_jitter_fix() / hard_upper_bumps);
 		if (min_possible_steps > max_typical_steps) {
 			ret.physics_steps = min_possible_steps;
 			update_typical = true;
+			// hard_upper_bumps=0;
 		} else {
 			ret.physics_steps = max_typical_steps;
 		}
 	}
+	else if(!update_typical)
+	{
+		// hard_upper_bumps = hard_lower_bumps = 0;
+	}
+
+	if(ret.physics_steps < 0)
+		ret.physics_steps = 0;
 
 	time_accum -= ret.physics_steps * p_frame_slice;
 
@@ -146,6 +165,17 @@ MainFrameTime MainTimerSync::advance_checked(float p_frame_slice, int p_iteratio
 	if (fixed_fps != -1)
 		p_idle_step = 1.0 / fixed_fps;
 
+	if (time_deficit < 0) {
+		if (consistently_negative_deficit < MAX_BUMPS)
+			consistently_negative_deficit++;
+		consistently_positive_deficit = 0;
+	} else {
+		if (consistently_positive_deficit < MAX_BUMPS)
+			consistently_positive_deficit++;
+		consistently_negative_deficit = 0;
+	}
+
+
 	// compensate for last deficit
 	p_idle_step += time_deficit;
 
@@ -165,8 +195,8 @@ MainFrameTime MainTimerSync::advance_checked(float p_frame_slice, int p_iteratio
 		}
 	}
 
-	// second clamping: keep abs(time_deficit) < jitter_fix * frame_slise
-	float max_clock_deviation = get_physics_jitter_fix() * p_frame_slice;
+	// second clamping: keep abs(time_deficit) < jitter_fix * frame_slice
+	float max_clock_deviation = get_physics_jitter_fix() * p_frame_slice / (consistently_positive_deficit + consistently_negative_deficit);
 	ret.clamp_idle(p_idle_step - max_clock_deviation, p_idle_step + max_clock_deviation);
 
 	// last clamping: make sure time_accum is between 0 and p_frame_slice for consistency between physics and idle
@@ -198,6 +228,10 @@ MainTimerSync::MainTimerSync() :
 		current_cpu_ticks_usec(0),
 		time_accum(0),
 		time_deficit(0),
+		hard_upper_bumps(MAX_BUMPS),
+		hard_lower_bumps(MAX_BUMPS),
+		consistently_negative_deficit(1),
+		consistently_positive_deficit(0),
 		fixed_fps(0) {
 	for (int i = CONTROL_STEPS - 1; i >= 0; --i) {
 		typical_physics_steps[i] = i;
