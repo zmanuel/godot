@@ -279,11 +279,21 @@ void MainTimerSync::Stepper::execute_step(MainTimerSync::PlannedStep &p_step, fl
 }
 
 void MainTimerSync::Stepper::execute_step_unclamped(const MainTimerSync::PlannedStep &p_step, float p_physics_delta) {
+	int physics_steps = p_step.physics_steps;
+	if (physics_steps < 0) {
+#ifdef SYNC_TIMER_DEBUG_ENABLED
+		// negative steps can only happen if either the real clock runs backwards (caught there)
+		// or the jitter_fix setting gets changed on the fly.
+		WARN_PRINT_ONCE("negative physics step calculated");
+#endif
+		physics_steps = 0;
+	}
+
 	// apply timestep
-	time_accum += p_step.delta - p_step.physics_steps * p_physics_delta;
+	time_accum += p_step.delta - physics_steps * p_physics_delta;
 
 	// update accumulated_physics_steps
-	accumulate_step(p_step.physics_steps);
+	accumulate_step(physics_steps);
 }
 
 void MainTimerSync::Stepper::sync_from(const MainTimerSync::Stepper &p_other, float p_physics_delta, float p_offset) {
