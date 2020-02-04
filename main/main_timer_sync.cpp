@@ -90,11 +90,6 @@ MainFrameTime MainTimerSync::advance_checked(float p_physics_delta, int p_physic
 	// apply the planned step (this performs the last clamping to keep time_accum in bounds)
 	stepper.execute_step(step, p_physics_delta, min_output_delta);
 
-	// keep the canonical stepper half a physics tick ahead (or behind, there is no difference due to the wraparound)
-	// (the other canonical choice would be zero offset, but that leads to the regular
-	// stepper getting 'stuck' on hysteresis thresholds in more situations)
-	canonical_stepper.sync_from(stepper, p_physics_delta, p_physics_delta * .5f);
-
 	// assemble result
 	MainFrameTime ret;
 	ret.idle_step = step.delta;
@@ -106,6 +101,11 @@ MainFrameTime MainTimerSync::advance_checked(float p_physics_delta, int p_physic
 
 	// track deficit
 	time_deficit = p_delta - ret.idle_step;
+
+	// keep the canonical stepper half a physics tick ahead (or behind, there is no difference due to the wraparound)
+	// (the other canonical choice would be zero offset, but that leads to the regular
+	// stepper getting 'stuck' on hysteresis thresholds in more situations)
+	canonical_stepper.sync_from(stepper, p_physics_delta, p_physics_delta * .5f + time_deficit);
 
 	return ret;
 }
