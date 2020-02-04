@@ -60,7 +60,7 @@ MainFrameTime MainTimerSync::advance_checked(float p_physics_delta, int p_physic
 	// the canonical stepper always gets updated with jtter_fix of 0.5; that is the maximal value that
 	// won't ever lead to bouncing from border to border, and we want the maximal value possible because
 	// that makes it most likely to find a stable rhythm.
-	canonical_stepper.advance(p_delta, p_physics_delta, p_physics_iterations_per_second, 0.5f, rhythm);
+	canonical_stepper.advance_unclamped(p_delta, p_physics_delta, p_physics_iterations_per_second, 0.5f, rhythm);
 
 	// update the rhythm from it
 	rhythm.update(canonical_stepper);
@@ -83,20 +83,26 @@ MainFrameTime MainTimerSync::advance_checked(float p_physics_delta, int p_physic
 		}
 	}
 
-	// second clamping: keep abs(time_deficit) < jitter_fix * frame_slise
+	// second clamping: keep abs(time_deficit) < jitter_fix * p_physics_delta
 	float max_clock_deviation = jitter_fix * p_physics_delta;
 	step.clamp_delta(p_delta - max_clock_deviation, p_delta + max_clock_deviation);
 
 	// apply the planned step (this performs the last clamping to keep time_accum in bounds)
 	stepper.execute_step(step, p_physics_delta, min_output_delta);
 
+	// keep the canonical stepper half a physics tick ahead (or behind, there is no difference due to the wraparound)
+	// (the other canonical choice would be zero offset, but that leads to the regular
+	// stepper getting 'stuck' on hysteresis thresholds in more situations)
+	canonical_stepper.sync_from(stepper, p_physics_delta, p_physics_delta * .5f);
+
+	// assemble result
 	MainFrameTime ret;
 	ret.idle_step = step.delta;
 	ret.physics_steps = step.physics_steps;
 
 	// p_frame_slice is 1.0 / iterations_per_sec
 	// i.e. the time in seconds taken by a physics tick
-	ret.interpolation_fraction = stepper.time_accum * p_physics_iterations_per_second;
+	ret.interpolation_fraction = stepper.get_time_accum() * p_physics_iterations_per_second;
 
 	// track deficit
 	time_deficit = p_delta - ret.idle_step;
@@ -121,6 +127,10 @@ MainTimerSync::MainTimerSync() :
 
 // start the clock
 void MainTimerSync::init(uint64_t p_cpu_ticks_usec) {
+	// put the canonical stepper half a physics tick ahead
+	int physics_fps = Engine::get_singleton()->get_iterations_per_second();
+	canonical_stepper.advance_unclamped(.5f / physics_fps, 1.0f / physics_fps, physics_fps, 0, rhythm);
+
 	current_cpu_ticks_usec = last_cpu_ticks_usec = p_cpu_ticks_usec;
 }
 
@@ -264,11 +274,46 @@ void MainTimerSync::Stepper::execute_step(MainTimerSync::PlannedStep &p_step, fl
 		}
 	}
 
+	// update accumulated_physics_steps
+	accumulate_step(p_step.physics_steps);
+}
+
+void MainTimerSync::Stepper::execute_step_unclamped(const MainTimerSync::PlannedStep &p_step, float p_physics_delta) {
+	// apply timestep
+	time_accum += p_step.delta - p_step.physics_steps * p_physics_delta;
+
+	// update accumulated_physics_steps
+	accumulate_step(p_step.physics_steps);
+}
+
+void MainTimerSync::Stepper::sync_from(const MainTimerSync::Stepper &p_other, float p_physics_delta, float p_offset) {
+	// nothing we can do if the other stepper is saturated
+	if (p_other.time_accum <= 0 || p_other.time_accum >= p_physics_delta)
+		return;
+
+	const float raw_new_time_accum = p_other.get_time_accum() + p_offset;
+
+	// mind wraparound; add multiple of p_physics_delta that gets new_time_accum closest to time_accum
+	const float new_time_accum = raw_new_time_accum +
+								 floor((time_accum - raw_new_time_accum) / p_physics_delta + .5f) * p_physics_delta;
+
+#ifdef SYNC_TIMER_DEBUG_ENABLED
+	if (fabs(new_time_accum - time_accum) > 1E-4f * p_physics_delta) {
+		// normal on physics_fps changes
+		WARN_PRINT_ONCE("timers drifted away from each other");
+	}
+#endif
+
+	// take over new time
+	time_accum = new_time_accum;
+}
+
+void MainTimerSync::Stepper::accumulate_step(int p_physics_steps) {
 	// keep track of accumulated step counts
 	for (int i = CONTROL_STEPS - 2; i >= 0; --i) {
-		accumulated_physics_steps[i + 1] = accumulated_physics_steps[i] + p_step.physics_steps;
+		accumulated_physics_steps[i + 1] = accumulated_physics_steps[i] + p_physics_steps;
 	}
-	accumulated_physics_steps[0] = p_step.physics_steps;
+	accumulated_physics_steps[0] = p_physics_steps;
 }
 
 /////////////////////////////////

@@ -76,19 +76,31 @@ class MainTimerSync {
 		// from the input to keek time_accum in the required range
 		void execute_step(PlannedStep &p_step, float p_physics_delta, float p_min_delta = 0.0f);
 
-		// combines the two
-		float advance(float p_delta, float p_physics_delta, int p_physics_iterations_per_second, float p_jitter_fix, Rhythm const &p_rhythm) {
-			PlannedStep step = plan_step(p_delta, p_physics_delta, p_physics_iterations_per_second, p_jitter_fix, p_rhythm);
-			execute_step(step, p_physics_delta);
-			return step.delta;
+		// executes the planned step, advancing time_accum.
+		// no clamping is performed, afterwards time_accum may be outside
+		// of the valid range
+		void execute_step_unclamped(PlannedStep const &p_step, float p_physics_delta);
+
+		// does a full unclamped step
+		void advance_unclamped(float p_delta, float p_physics_delta, int p_physics_iterations_per_second, float p_jitter_fix, Rhythm const &p_rhythm) {
+			const PlannedStep step = plan_step(p_delta, p_physics_delta, p_physics_iterations_per_second, p_jitter_fix, p_rhythm);
+			execute_step_unclamped(step, p_physics_delta);
 		}
 
-		// logical game time since last physics timestep
-		float time_accum;
+		// if the two steppers are in a good state, sync this so that its time_accum is p_offset ahead of p_others (wraparound included)
+		void sync_from(Stepper const &p_other, float p_physics_delta, float p_offset);
+
+		float get_time_accum() const { return time_accum; }
 
 	private:
 		// sum of physics steps done over the last (i+1) frames
 		int accumulated_physics_steps[CONTROL_STEPS];
+
+		// logical game time since last physics timestep
+		float time_accum;
+
+		// advances the above array one step with the given number of physics steps this frame
+		void accumulate_step(int p_physics_steps);
 	};
 
 	// keeps track of typical physics updates
