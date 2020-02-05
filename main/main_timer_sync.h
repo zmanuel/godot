@@ -62,8 +62,10 @@ class MainTimerSync {
 		Stepper();
 
 		int operator[](int p_i) const {
+#ifdef DEBUG_ENABLED
 			CRASH_COND(p_i < 0);
 			CRASH_COND(p_i >= CONTROL_STEPS);
+#endif
 			return accumulated_physics_steps[p_i];
 		}
 
@@ -121,8 +123,10 @@ class MainTimerSync {
 		int get_average_physics_steps(float &p_min, float &p_max);
 
 		Entry const &operator[](int p_i) const {
+#ifdef DEBUG_ENABLED
 			CRASH_COND(p_i < 0);
 			CRASH_COND(p_i >= CONTROL_STEPS);
+#endif
 			return entries[p_i];
 		}
 
