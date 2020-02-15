@@ -173,8 +173,6 @@ MainFrameTime MainTimerSync::advance_checked(float p_frame_slice, int p_iteratio
 	if (fixed_fps != -1)
 		p_idle_step = 1.0 / fixed_fps;
 
-	const float min_output_step = p_idle_step > 0 ? p_idle_step * .25 : 1E-6;
-
 	// compensate for last deficit
 	p_idle_step += time_deficit;
 
@@ -201,12 +199,12 @@ MainFrameTime MainTimerSync::advance_checked(float p_frame_slice, int p_iteratio
 	// last clamping: make sure time_accum is between 0 and p_frame_slice for consistency between physics and idle
 	ret.clamp_idle(idle_minus_accum, idle_minus_accum + p_frame_slice);
 
-	// all the operations above may have turned ret.idle_step negative or zero, keep a minimal value
-	if (ret.idle_step < min_output_step) {
+	// all the operations above may have turned ret.idle_step negative, clamp to zero
+	if (ret.idle_step < 0) {
 #ifdef SYNC_TIMER_DEBUG_ENABLED
 		WARN_PRINT_ONCE("negative animation timestep calculated");
 #endif
-		ret.idle_step = min_output_step;
+		ret.idle_step = 0;
 	}
 
 	// restore time_accum
