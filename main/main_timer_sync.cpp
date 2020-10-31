@@ -30,11 +30,6 @@
 
 #include "main_timer_sync.h"
 
-#ifdef DEBUG_ENABLED
-// enable to get extra diagnostics from here
-// #define SYNC_TIMER_DEBUG_ENABLED
-#endif
-
 void MainFrameTime::clamp_idle(float min_idle_step, float max_idle_step) {
 	if (idle_step < min_idle_step) {
 		idle_step = min_idle_step;
@@ -139,11 +134,6 @@ MainFrameTime MainTimerSync::advance_core(float p_frame_slice, int p_iterations_
 	}
 
 	if (ret.physics_steps < 0) {
-#ifdef SYNC_TIMER_DEBUG_ENABLED
-		// negative steps can only happen if either the real clock runs backwards (caught there)
-		// or the jitter_fix setting gets changed on the fly.
-		WARN_PRINT_ONCE("negative physics step calculated");
-#endif
 		ret.physics_steps = 0;
 	}
 
@@ -208,9 +198,6 @@ MainFrameTime MainTimerSync::advance_checked(float p_frame_slice, int p_iteratio
 
 	// all the operations above may have turned ret.idle_step negative or zero, keep a minimal value
 	if (ret.idle_step < min_output_step) {
-#ifdef SYNC_TIMER_DEBUG_ENABLED
-		WARN_PRINT_ONCE("negative animation timestep calculated");
-#endif
 		ret.idle_step = min_output_step;
 	}
 
@@ -226,9 +213,6 @@ MainFrameTime MainTimerSync::advance_checked(float p_frame_slice, int p_iteratio
 #endif
 
 	if (time_accum > p_frame_slice) {
-#ifdef SYNC_TIMER_DEBUG_ENABLED
-		WARN_PRINT_ONCE("extra physics steps required to avoid negative timesteps");
-#endif
 		const int extra_physics_steps = floor(time_accum * p_iterations_per_second);
 		time_accum -= extra_physics_steps * p_frame_slice;
 		ret.physics_steps += extra_physics_steps;
