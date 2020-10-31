@@ -178,7 +178,7 @@ MainFrameTime MainTimerSync::advance_checked(float p_frame_slice, int p_iteratio
 		p_idle_step = 1.0 / fixed_fps;
 	}
 
-	const float min_output_step = p_idle_step > 0 ? p_idle_step * .25 : 1E-6;
+	const float min_output_step = p_idle_step > 0 ? p_idle_step / 8 : 1E-6;
 
 	// compensate for last deficit
 	p_idle_step += time_deficit;
