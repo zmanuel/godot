@@ -206,7 +206,7 @@ MainFrameTime MainTimerSync::advance_checked(float p_frame_slice, int p_iteratio
 	// promise that time_accum is between 0 and p_frame_slice
 #ifdef DEBUG_ENABLED
 	if (time_accum < -1E-7) {
-		WARN_PRINT_ONCE("`time_accum` is negative. This could hint at an engine bug or system timer misconfiguration.");
+		WARN_PRINT_ONCE("Intermediate value of `time_accum` is negative. This could hint at an engine bug or system timer misconfiguration.");
 	}
 #endif
 
@@ -218,10 +218,10 @@ MainFrameTime MainTimerSync::advance_checked(float p_frame_slice, int p_iteratio
 
 #ifdef DEBUG_ENABLED
 	if (time_accum < -1E-7) {
-		WARN_PRINT_ONCE("time_accum negative");
+		WARN_PRINT_ONCE("Final value of `time_accum` is negative. It should always be between 0 and `p_frame_slice`. This hints at an engine bug.");
 	}
 	if (time_accum > p_frame_slice + 1E-7) {
-		WARN_PRINT_ONCE("time_accum larger than p_frame_slice");
+		WARN_PRINT_ONCE("Final value of `time_accum` is larger than `p_frame_slice`. It should always be between 0 and `p_frame_slice`. This hints at an engine bug.");
 	}
 #endif
 
