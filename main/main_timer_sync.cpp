@@ -167,7 +167,7 @@ MainFrameTime MainTimerSync::advance_core(float p_frame_slice, int p_iterations_
 // calls advance_core, keeps track of deficit it adds to animaption_step, make sure the deficit sum stays close to zero
 MainFrameTime MainTimerSync::advance_checked(float p_frame_slice, int p_iterations_per_second, float p_idle_step) {
 	if (p_idle_step <= 0) {
-		WARN_PRINT_ONCE("p_idle_step not positive");
+		WARN_PRINT_ONCE("`p_idle_step` is not strictly positive. This could hint at an engine bug or system timer misconfiguration.");
 	}
 
 	if (fixed_fps != -1)
