@@ -214,7 +214,7 @@ MainFrameTime MainTimerSync::advance_checked(float p_frame_slice, int p_iteratio
 	// promise that time_accum is between 0 and p_frame_slice
 #ifdef DEBUG_ENABLED
 	if (time_accum < -1E-7) {
-		WARN_PRINT_ONCE("time_accum negative");
+		WARN_PRINT_ONCE("`time_accum` is negative. This could hint at an engine bug or system timer misconfiguration.");
 	}
 #endif
 
