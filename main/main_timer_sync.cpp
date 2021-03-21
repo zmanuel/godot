@@ -108,7 +108,7 @@ MainFrameTime MainTimerSync::advance_core(float p_frame_slice, int p_iterations_
 
 #ifdef DEBUG_ENABLED
 	if (max_typical_steps < 0) {
-		WARN_PRINT_ONCE("max_typical_steps is negative");
+		WARN_PRINT_ONCE("`max_typical_steps` is negative. This could hint at an engine bug or system timer misconfiguration.");
 	}
 	if (min_typical_steps < 0) {
 		WARN_PRINT_ONCE("min_typical_steps is negative");
